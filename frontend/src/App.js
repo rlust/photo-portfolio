@@ -135,6 +135,34 @@ function App() {
       });
   };
 
+  // Delete image
+  const handleDeleteImage = async (folder, name) => {
+    if (!window.confirm(`Delete image "${name}" from folder "${folder}"?`)) return;
+    try {
+      await fetch(
+        `https://photoportfolio-backend-839093975626.us-central1.run.app/api/folder/${encodeURIComponent(folder)}/${encodeURIComponent(name)}`,
+        { method: 'DELETE' }
+      );
+      fetchFolders();
+    } catch (err) {
+      alert('Error deleting image: ' + err.message);
+    }
+  };
+
+  // Delete folder
+  const handleDeleteFolder = async (folder) => {
+    if (!window.confirm(`Delete folder "${folder}" and ALL images in it? This cannot be undone.`)) return;
+    try {
+      await fetch(
+        `https://photoportfolio-backend-839093975626.us-central1.run.app/api/folder/${encodeURIComponent(folder)}`,
+        { method: 'DELETE' }
+      );
+      fetchFolders();
+    } catch (err) {
+      alert('Error deleting folder: ' + err.message);
+    }
+  };
+
   return (
     <div className="App">
       <header className="App-header" style={{padding: '2rem', background: 'linear-gradient(90deg,#1e3c72 0%,#2a5298 100%)', color: '#fff'}}>
@@ -147,76 +175,130 @@ function App() {
           href="https://github.com/rlust/photo-portfolio"
           target="_blank"
           rel="noopener noreferrer"
-          style={{color: '#fff', background: '#2a5298', padding: '0.75rem 1.5rem', borderRadius: '2rem', textDecoration: 'none', fontWeight: 'bold', boxShadow: '0 4px 20px rgba(30,60,114,0.1)'}}
+          style={{ color: '#fff', background: '#2a5298', padding: '0.75rem 1.5rem', borderRadius: '2rem', textDecoration: 'none', fontWeight: 'bold', boxShadow: '0 4px 20px rgba(30,60,114,0.1)' }}
         >
           View on GitHub
         </a>
       </header>
-      <section style={{padding: '2rem'}}>
-        <h2>Users from Backend API</h2>
-        {loadingUsers && <p>Loading users...</p>}
-        {userError && <p style={{color: 'red'}}>Error: {userError}</p>}
-        {!loadingUsers && !userError && (
-          <ul style={{listStyle: 'none', padding: 0}}>
-            {users.length === 0 && <li>No users found.</li>}
-            {users.map((user, idx) => (
-              <li key={user.id || idx} style={{marginBottom: '0.5rem'}}>
-                <strong>{user.name}</strong> ({user.email})
-              </li>
-            ))}
-          </ul>
+
+      {/* SEARCH UI */}
+      <section style={{ margin: '2rem auto', maxWidth: 900, background: '#fff', borderRadius: '8px', boxShadow: '0 2px 8px #0001', padding: '1.5rem' }}>
+        <h2 style={{ marginTop: 0 }}>Search Images</h2>
+        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
+          <input name="name" type="text" placeholder="Image name contains..." value={search.name} onChange={handleSearchChange} />
+          <input name="folder" type="text" placeholder="Folder name..." value={search.folder} onChange={handleSearchChange} />
+          <input name="mimetype" type="text" placeholder="Mimetype (e.g. image/jpeg)" value={search.mimetype} onChange={handleSearchChange} />
+          <input name="date_from" type="date" value={search.date_from} onChange={handleSearchChange} />
+          <input name="date_to" type="date" value={search.date_to} onChange={handleSearchChange} />
+          <button type="submit" disabled={searching}>{searching ? 'Searching...' : 'Search'}</button>
+          {searchResults && <button type="button" onClick={handleClearSearch}>Clear</button>}
+        </form>
+        {searchError && <div style={{ color: 'red', marginTop: '0.5rem' }}>{searchError}</div>}
+        {searchResults && (
+          <div style={{ marginTop: '1rem' }}>
+            <h3>Search Results ({searchResults.length})</h3>
+            {searchResults.length === 0 && <div>No images found.</div>}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+              {searchResults.map((img, idx) => (
+                <div key={img.url + idx} style={{ border: '1px solid #eee', borderRadius: '6px', padding: '0.5rem', minWidth: '160px', background: '#fafbfc', position: 'relative' }}>
+                  <img
+                    src={img.url}
+                    alt={img.name}
+                    title={img.name}
+                    style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #ccc' }}
+                  />
+                  <div style={{ fontWeight: 'bold', marginTop: '0.5rem' }}>{img.name}</div>
+                  <div style={{ fontSize: '0.9em', color: '#444' }}>{img.folder}</div>
+                  <div style={{ fontSize: '0.85em', color: '#888' }}>{img.mimetype}</div>
+                  <div style={{ fontSize: '0.8em', color: '#aaa' }}>{img.uploaded_at?.slice(0, 10)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </section>
-      <section style={{padding: '2rem', borderTop: '1px solid #eee'}}>
+
+      {/* FOLDERS & IMAGES UI */}
+      <section style={{ marginBottom: '2rem', background: '#fff', borderRadius: '8px', boxShadow: '0 2px 8px #0001', padding: '1.5rem' }}>
+        <h2 style={{ marginTop: 0 }}>Folders & Images</h2>
+        {loadingFolders && <div>Loading folders...</div>}
+        {foldersError && <div style={{ color: 'red' }}>{foldersError}</div>}
+        {!loadingFolders && !foldersError && !searchResults && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2rem' }}>
+            {Object.keys(folders).length === 0 && <div>No folders found.</div>}
+            {Object.entries(folders).map(([folder, images]) => (
+              <div key={folder} style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '1rem', minWidth: '220px', background: '#fafbfc', position: 'relative' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{folder}</span>
+                  <button onClick={() => handleDeleteFolder(folder)} style={{ background: '#f33', color: '#fff', border: 'none', borderRadius: '4px', padding: '0.25rem 0.7rem', fontWeight: 'bold', cursor: 'pointer' }}>Delete Folder</button>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  {images.map((img, idx) => (
+                    <div key={img.name + idx} style={{ position: 'relative', display: 'inline-block' }}>
+                      <img
+                        src={img.url}
+                        alt={img.name}
+                        title={img.name}
+                        style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #ccc' }}
+                      />
+                      <button
+                        onClick={() => handleDeleteImage(folder, img.name)}
+                        title="Delete image"
+                        style={{ position: 'absolute', top: 2, right: 2, background: '#f33', color: '#fff', border: 'none', borderRadius: '50%', width: '20px', height: '20px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.9rem', lineHeight: '18px', padding: 0 }}
+                      >&times;</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* UPLOAD UI */}
+      <section style={{ padding: '2rem', borderTop: '1px solid #eee' }}>
         <h2>Upload a Group of Images to a Folder</h2>
-        <form onSubmit={handleGroupUpload} style={{marginBottom:'2rem', background:'#f3f6fa', padding:'1rem', borderRadius:'8px', maxWidth:'500px'}}>
-          <div style={{marginBottom:'0.5rem'}}>
+        <form onSubmit={handleGroupUpload} style={{ marginBottom: '2rem', background: '#f3f6fa', padding: '1rem', borderRadius: '8px', maxWidth: '500px' }}>
+          <div style={{ marginBottom: '0.5rem' }}>
             <input
               type="text"
               placeholder="Folder Name"
               value={folderName}
               required
               onChange={e => setFolderName(e.target.value)}
-              style={{width:'100%', padding:'0.5rem'}}
+              style={{ width: '100%', padding: '0.5rem' }}
             />
           </div>
-          <div style={{marginBottom:'0.5rem'}}>
+          <div style={{ marginBottom: '0.5rem' }}>
             <input
               type="file"
               multiple
               accept="image/*"
               onChange={e => setFolderImages([...e.target.files])}
-              style={{width:'100%'}}
+              style={{ width: '100%' }}
             />
           </div>
-          <button type="submit" disabled={uploadingGroup} style={{padding:'0.5rem 1.5rem', background:'#2a5298', color:'#fff', border:'none', borderRadius:'4px', fontWeight:'bold'}}>
+          <button type="submit" disabled={uploadingGroup} style={{ padding: '0.5rem 1.5rem', background: '#2a5298', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>
             {uploadingGroup ? 'Uploading...' : 'Upload Images'}
           </button>
-          {groupUploadError && <div style={{color:'red', marginTop:'0.5rem'}}>{groupUploadError}</div>}
+          {groupUploadError && <div style={{ color: 'red', marginTop: '0.5rem' }}>{groupUploadError}</div>}
         </form>
-        <h2>Folders & Images</h2>
-        {loadingFolders && <p>Loading folders...</p>}
-        {foldersError && <p style={{color:'red'}}>Error: {foldersError}</p>}
-        {!loadingFolders && !foldersError && (
-          <div style={{display:'flex', flexWrap:'wrap', gap:'2rem'}}>
-            {Object.keys(folders).length === 0 && <div>No folders found.</div>}
-            {Object.entries(folders).map(([folder, images]) => (
-              <div key={folder} style={{border:'1px solid #ddd', borderRadius:'8px', padding:'1rem', minWidth:'220px', background:'#fafbfc'}}>
-                <div style={{fontWeight:'bold', marginBottom:'0.5rem', fontSize:'1.1rem'}}>{folder}</div>
-                <div style={{display:'flex', flexWrap:'wrap', gap:'0.5rem'}}>
-                  {images.map((img, idx) => (
-                    <img
-                      key={img.name+idx}
-                      src={`https://photoportfolio-backend-839093975626.us-central1.run.app/api/folder/${encodeURIComponent(folder)}/${encodeURIComponent(img.name)}`}
-                      alt={img.name}
-                      title={img.name}
-                      style={{width:'80px', height:'80px', objectFit:'cover', borderRadius:'4px', border:'1px solid #ccc'}}
-                    />
-                  ))}
-                </div>
-              </div>
+      </section>
+
+      {/* USERS UI */}
+      <section style={{ padding: '2rem' }}>
+        <h2>Users from Backend API</h2>
+        {loadingUsers && <p>Loading users...</p>}
+        {userError && <p style={{ color: 'red' }}>Error: {userError}</p>}
+        {!loadingUsers && !userError && (
+          <ul style={{ listStyle: 'none', padding: 0 }}>
+            {users.length === 0 && <li>No users found.</li>}
+            {users.map((user, idx) => (
+              <li key={user.id || idx} style={{ marginBottom: '0.5rem' }}>
+                <strong>{user.name}</strong> ({user.email})
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </section>
     </div>
