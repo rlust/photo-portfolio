@@ -3,9 +3,20 @@ from flask_cors import CORS
 from search import search_bp
 
 app = Flask(__name__)
-CORS(app, origins=["https://photoportfolio-app.windsurf.build"], resources=r'/api/*', allow_headers='Content-Type', expose_headers='Content-Type', supports_credentials=True)
+ALLOWED_ORIGINS = [
+    "https://photo-portfolio-cloud.windsurf.build",
+    "https://photoportfolio-app.windsurf.build"
+]
+CORS(app, origins=ALLOWED_ORIGINS, resources=r'/api/*', allow_headers='Content-Type', expose_headers='Content-Type', supports_credentials=True)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 32 MB limit (Cloud Run/App Engine max)
-CORS(app, resources={r"/api/*": {"origins": ["https://photoportfolio-app.windsurf.build"]}})
+CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
+
+def get_cors_origin():
+    origin = request.headers.get('Origin')
+    if origin in ALLOWED_ORIGINS:
+        return origin
+    return ALLOWED_ORIGINS[0]  # fallback to first allowed origin
+
 app.register_blueprint(search_bp)
 
 # In-memory mock DB (replace with real DB integration later)
@@ -184,7 +195,7 @@ from flask import make_response
 @app.errorhandler(413)
 def handle_413(e):
     response = make_response(jsonify({'error': 'Request too large. Each batch must be under 32MB.'}), 413)
-    response.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+    response.headers['Access-Control-Allow-Origin'] = get_cors_origin()
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
     response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
     return response
@@ -197,7 +208,7 @@ def upload_photos():
         files = request.files.getlist('images')
         if not folder or not files:
             resp = make_response(jsonify({'error': 'Folder name and images are required.'}), 400)
-            resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+            resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
             resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
             resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
             return resp
@@ -213,19 +224,19 @@ def upload_photos():
             except Exception as e:
                 print(f"[UPLOAD ERROR] {e}\n{traceback.format_exc()}")
                 resp = make_response(jsonify({'error': f'Failed to upload {file.filename}: {str(e)}'}), 500)
-                resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+                resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
                 resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
                 resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
                 return resp
         resp = make_response(jsonify({'folder': folder, 'uploaded': uploaded, 'folders': get_all_folders()}), 201)
-        resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+        resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
         resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
         return resp
     except Exception as e:
         print(f"[UPLOAD ERROR] {e}\n{traceback.format_exc()}")
         resp = make_response(jsonify({'error': f'Upload failed: {str(e)}'}), 500)
-        resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+        resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
         resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
         return resp
@@ -323,7 +334,7 @@ def get_signed_url():
         folder = secure_filename(data.get('folder', 'uploads'))
         if not filename or not content_type or not folder:
             resp = make_response(jsonify({'error': 'filename, contentType, and folder are required'}), 400)
-            resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+            resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
             return resp
         unique_name = f"{uuid.uuid4().hex}_{secure_filename(filename)}"
         gcs_path = f"folders/{folder}/{unique_name}"
@@ -338,13 +349,13 @@ def get_signed_url():
         )
         public_url = f"https://storage.googleapis.com/{GCS_BUCKET}/{gcs_path}"
         resp = make_response(jsonify({'url': url, 'publicUrl': public_url, 'gcsPath': gcs_path}), 200)
-        resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+        resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
         return resp
     except Exception as e:
         print('Error in /api/signed-url:', str(e))
         traceback.print_exc()
         resp = make_response(jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500)
-        resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+        resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
         return resp
 
 @app.route('/api/register-upload', methods=['POST'])
@@ -357,12 +368,12 @@ def register_upload():
     gcs_path = data.get('gcsPath')
     if not filename or not content_type or not folder or not public_url:
         resp = make_response(jsonify({'error': 'filename, contentType, folder, and publicUrl are required'}), 400)
-        resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+        resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
         return resp
     add_folder_to_db(folder)
     add_photo_to_db(folder, filename, public_url, content_type, gcs_path or '')
     resp = make_response(jsonify({'ok': True}), 200)
-    resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+    resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
     return resp
 
 import os
