@@ -249,42 +249,44 @@ function App() {
           <button onClick={()=>setTab('gallery')} style={{padding:'0.5rem 1.2rem',borderRadius:'4px',border:'none',background:tab==='gallery'?'#222':'#eee',color:tab==='gallery'?'#fff':'#444',fontWeight:'bold',cursor:'pointer',fontSize:'1.1rem'}}>Gallery</button>
           <button onClick={()=>setTab('admin')} style={{padding:'0.5rem 1.2rem',borderRadius:'4px',border:'none',background:tab==='admin'?'#222':'#eee',color:tab==='admin'?'#fff':'#444',fontWeight:'bold',cursor:'pointer',fontSize:'1.1rem'}}>Admin</button>
           <button onClick={()=>setTab('largebatch')} style={{padding:'0.5rem 1.2rem',borderRadius:'4px',border:'none',background:tab==='largebatch'?'#222':'#eee',color:tab==='largebatch'?'#fff':'#444',fontWeight:'bold',cursor:'pointer',fontSize:'1.1rem'}}>Large Batch Upload</button>
+          <button onClick={()=>setTab('search')} style={{padding:'0.5rem 1.2rem',borderRadius:'4px',border:'none',background:tab==='search'?'#222':'#eee',color:tab==='search'?'#fff':'#444',fontWeight:'bold',cursor:'pointer',fontSize:'1.1rem'}}>Search</button>
         </div>
       </header>
 
-      {/* Web Search Bar */}
-      <section style={{margin:'2rem auto',maxWidth:600,padding:'1.5rem',background:'#fff',borderRadius:'8px',boxShadow:'0 2px 8px #0001'}}>
-        <form onSubmit={handleWebSearch} style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
-          <input
-            type="text"
-            placeholder="Search the web..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            style={{flex:1,padding:'0.7rem',fontSize:'1.1rem',border:'1px solid #ccc',borderRadius:'4px'}}
-          />
-          <button type="submit" disabled={searchLoading || !searchQuery.trim()} style={{padding:'0.7rem 1.3rem',fontSize:'1.1rem',borderRadius:'4px',border:'none',background:'#2a5298',color:'#fff',fontWeight:'bold',cursor:'pointer'}}>Search</button>
-        </form>
-        {searchLoading && <div style={{marginTop:'1rem',color:'#888'}}>Searching...</div>}
-        {searchError && <div style={{marginTop:'1rem',color:'red'}}>Error: {searchError}</div>}
-        {searchResults && (
-          <div style={{marginTop:'1.2rem'}}>
-            {searchResults.length === 0 ? (
-              <div style={{color:'#888'}}>No results found.</div>
-            ) : (
-              <ul style={{listStyle:'none',padding:0}}>
-                {searchResults.map((item,idx) => (
-                  <li key={item.link || idx} style={{marginBottom:'1.1rem',borderBottom:'1px solid #eee',paddingBottom:'0.8rem'}}>
-                    <a href={item.link} target="_blank" rel="noopener noreferrer" style={{fontSize:'1.09rem',fontWeight:'bold',color:'#2a5298',textDecoration:'none'}}>{item.title}</a>
-                    <div style={{color:'#444',marginTop:'0.2rem'}}>{item.snippet}</div>
-                    <div style={{color:'#888',fontSize:'0.97em',marginTop:'0.12rem'}}>{item.displayLink || item.link}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-      </section>
-
+      {/* Search Tab Content */}
+      {tab === 'search' && (
+        <section style={{margin:'2rem auto',maxWidth:600,padding:'1.5rem',background:'#fff',borderRadius:'8px',boxShadow:'0 2px 8px #0001'}}>
+          <form onSubmit={handleWebSearch} style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
+            <input
+              type="text"
+              placeholder="Search the web..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{flex:1,padding:'0.7rem',fontSize:'1.1rem',border:'1px solid #ccc',borderRadius:'4px'}}
+            />
+            <button type="submit" disabled={searchLoading || !searchQuery.trim()} style={{padding:'0.7rem 1.3rem',fontSize:'1.1rem',borderRadius:'4px',border:'none',background:'#2a5298',color:'#fff',fontWeight:'bold',cursor:'pointer'}}>Search</button>
+          </form>
+          {searchLoading && <div style={{marginTop:'1rem',color:'#888'}}>Searching...</div>}
+          {searchError && <div style={{marginTop:'1rem',color:'red'}}>Error: {searchError}</div>}
+          {searchResults && (
+            <div style={{marginTop:'1.2rem'}}>
+              {searchResults.length === 0 ? (
+                <div style={{color:'#888'}}>No results found.</div>
+              ) : (
+                <ul style={{listStyle:'none',padding:0}}>
+                  {searchResults.map((item,idx) => (
+                    <li key={item.link || idx} style={{marginBottom:'1.1rem',borderBottom:'1px solid #eee',paddingBottom:'0.8rem'}}>
+                      <a href={item.link} target="_blank" rel="noopener noreferrer" style={{fontSize:'1.09rem',fontWeight:'bold',color:'#2a5298',textDecoration:'none'}}>{item.title}</a>
+                      <div style={{color:'#444',marginTop:'0.2rem'}}>{item.snippet}</div>
+                      <div style={{color:'#888',fontSize:'0.97em',marginTop:'0.12rem'}}>{item.displayLink || item.link}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </section>
+      )}
       {/* Full-size scrollable image carousel with lightbox and autoplay */}
       {allImages.length > 0 && (
         <section style={{width:'100%',overflowX:'auto',padding:'1.5rem 0',background:'#f7f7fa',marginBottom:'2rem',boxShadow:'0 2px 8px #0001'}}>

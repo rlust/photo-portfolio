@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 
 export default function GalleryView({ folders }) {
   const [selectedFolder, setSelectedFolder] = useState(null);
@@ -10,6 +10,30 @@ export default function GalleryView({ folders }) {
   // If a folder is selected, show its images
   if (selectedFolder) {
     const images = folders[selectedFolder] || [];
+    const scrollRef = useRef(null);
+    const [scrollIndex, setScrollIndex] = useState(0);
+
+    // After 15 seconds, start scrolling images horizontally in a loop
+    useEffect(() => {
+      if (!images.length) return;
+      let timer = setTimeout(() => {
+        const interval = setInterval(() => {
+          setScrollIndex(idx => (idx + 1) % images.length);
+        }, 2000); // scroll every 2s
+        return () => clearInterval(interval);
+      }, 15000); // start after 15s
+      return () => clearTimeout(timer);
+    }, [images.length]);
+
+    useEffect(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTo({
+          left: scrollIndex * 200, // image width + margin
+          behavior: 'smooth'
+        });
+      }
+    }, [scrollIndex]);
+
     return (
       <div style={{margin:'2rem auto',maxWidth:1000}}>
         <button onClick={() => setSelectedFolder(null)} style={{marginBottom:'1rem',background:'#eee',border:'none',borderRadius:'4px',padding:'0.5rem 1.2rem',cursor:'pointer'}}>← Back to Folders</button>
@@ -17,7 +41,7 @@ export default function GalleryView({ folders }) {
         {images.length === 0 ? (
           <div style={{color:'#888',marginTop:'2rem'}}>No images in this folder.</div>
         ) : (
-          <div style={{display:'flex',flexWrap:'wrap',gap:'1.5rem'}}>
+          <div ref={scrollRef} style={{display:'flex',overflowX:'auto',gap:'1.5rem',scrollBehavior:'smooth',paddingBottom:'1rem'}}>
             {images.map((img,idx) => (
               <div key={img.url+idx} style={{background:'#fafbfc',borderRadius:'8px',padding:'1rem',boxShadow:'0 2px 8px #0001',minWidth:180}}>
                 {img.url ? (
