@@ -2,6 +2,33 @@ import React, { useState, useRef, useEffect } from "react";
 
 export default function GalleryView({ folders }) {
   const [selectedFolder, setSelectedFolder] = useState(null);
+  const scrollRef = useRef(null);
+  const [scrollIndex, setScrollIndex] = useState(0);
+
+  // Get images for selected folder (if any)
+  const images = selectedFolder ? (folders[selectedFolder] || []) : [];
+
+  // After 15 seconds, start scrolling images horizontally in a loop (only if a folder is selected)
+  useEffect(() => {
+    if (!selectedFolder || !images.length) return;
+    let timer = setTimeout(() => {
+      const interval = setInterval(() => {
+        setScrollIndex(idx => (idx + 1) % images.length);
+      }, 2000); // scroll every 2s
+      return () => clearInterval(interval);
+    }, 15000); // start after 15s
+    return () => clearTimeout(timer);
+  }, [selectedFolder, images.length]);
+
+  useEffect(() => {
+    if (!selectedFolder) return;
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({
+        left: scrollIndex * 200, // image width + margin
+        behavior: 'smooth'
+      });
+    }
+  }, [scrollIndex, selectedFolder]);
 
   if (!folders || Object.keys(folders).length === 0) {
     return <div style={{marginTop:'2rem', color:'#666', fontSize:'1.2rem'}}>No folders or images found. Try uploading images from the Admin panel.</div>;
@@ -9,34 +36,9 @@ export default function GalleryView({ folders }) {
 
   // If a folder is selected, show its images
   if (selectedFolder) {
-    const images = folders[selectedFolder] || [];
-    const scrollRef = useRef(null);
-    const [scrollIndex, setScrollIndex] = useState(0);
-
-    // After 15 seconds, start scrolling images horizontally in a loop
-    useEffect(() => {
-      if (!images.length) return;
-      let timer = setTimeout(() => {
-        const interval = setInterval(() => {
-          setScrollIndex(idx => (idx + 1) % images.length);
-        }, 2000); // scroll every 2s
-        return () => clearInterval(interval);
-      }, 15000); // start after 15s
-      return () => clearTimeout(timer);
-    }, [images.length]);
-
-    useEffect(() => {
-      if (scrollRef.current) {
-        scrollRef.current.scrollTo({
-          left: scrollIndex * 200, // image width + margin
-          behavior: 'smooth'
-        });
-      }
-    }, [scrollIndex]);
-
     return (
       <div style={{margin:'2rem auto',maxWidth:1000}}>
-        <button onClick={() => setSelectedFolder(null)} style={{marginBottom:'1rem',background:'#eee',border:'none',borderRadius:'4px',padding:'0.5rem 1.2rem',cursor:'pointer'}}>← Back to Folders</button>
+        <button onClick={() => { setSelectedFolder(null); setScrollIndex(0); }} style={{marginBottom:'1rem',background:'#eee',border:'none',borderRadius:'4px',padding:'0.5rem 1.2rem',cursor:'pointer'}}>← Back to Folders</button>
         <h2 style={{marginTop:0}}>{selectedFolder}</h2>
         {images.length === 0 ? (
           <div style={{color:'#888',marginTop:'2rem'}}>No images in this folder.</div>
@@ -72,7 +74,7 @@ export default function GalleryView({ folders }) {
       <h2 style={{marginTop:0}}>Folders</h2>
       <div style={{display:'flex',flexWrap:'wrap',gap:'2rem'}}>
         {Object.entries(folders).map(([folder,images]) => (
-          <div key={folder} style={{border:'1px solid #ddd',borderRadius:'8px',padding:'1.5rem',background:'#fafbfc',minWidth:220,cursor:'pointer',boxShadow:'0 2px 8px #0001'}} onClick={()=>setSelectedFolder(folder)}>
+          <div key={folder} style={{border:'1px solid #ddd',borderRadius:'8px',padding:'1.5rem',background:'#fafbfc',minWidth:220,cursor:'pointer',boxShadow:'0 2px 8px #0001'}} onClick={()=>{setSelectedFolder(folder); setScrollIndex(0);}}>
             <div style={{fontWeight:'bold',fontSize:'1.2rem',marginBottom:'0.5rem'}}>{folder}</div>
             <div style={{display:'flex',flexWrap:'wrap',gap:'0.5rem'}}>
               {images.slice(0,3).map((img,idx) => (
@@ -86,3 +88,4 @@ export default function GalleryView({ folders }) {
     </div>
   );
 }
+
