@@ -1,10 +1,12 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from search import search_bp
 
 app = Flask(__name__)
 CORS(app, origins=["https://photoportfolio-app.windsurf.build"], resources=r'/api/*', allow_headers='Content-Type', expose_headers='Content-Type', supports_credentials=True)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 32 MB limit (Cloud Run/App Engine max)
 CORS(app, resources={r"/api/*": {"origins": ["https://photoportfolio-app.windsurf.build"]}})
+app.register_blueprint(search_bp)
 
 # In-memory mock DB (replace with real DB integration later)
 users = []
