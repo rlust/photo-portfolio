@@ -77,19 +77,88 @@ export default function GalleryView({ folders }) {
         onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
         title={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
       >{theme === 'dark' ? '🌙' : '☀️'}</button>
-      <div style={{display:'flex',alignItems:'center',gap:'1rem',marginBottom:'2rem',justifyContent:'center'}}>
-        <label htmlFor="gallery-folder-select" style={{fontWeight:'bold'}}>Select Folder:</label>
-        <select
-          id="gallery-folder-select"
-          value={selectedFolder || '__ALL__'}
-          onChange={e => { setSelectedFolder(e.target.value === '__ALL__' ? null : e.target.value); setScrollIndex(0); }}
-          style={{padding:'0.5rem 1rem',fontSize:'1.1rem',borderRadius:'4px',border:'1px solid #ccc'}}
+      {/* Folder Carousel */}
+      <div className="folder-carousel" style={{display:'flex',overflowX:'auto',gap:'1.5rem',padding:'1rem 0 2rem 0',marginBottom:'1rem',scrollSnapType:'x mandatory'}}>
+        {/* All Folders Card */}
+        <div
+          className={`folder-card${!selectedFolder ? ' selected' : ''}`}
+          style={{minWidth:160,cursor:'pointer',scrollSnapAlign:'start',position:'relative'}}
+          onClick={()=>setSelectedFolder(null)}
         >
-          <option value="__ALL__">All Folders</option>
-          {folderNames.map(folder => (
-            <option key={folder} value={folder}>{folder}</option>
-          ))}
-        </select>
+          <div style={{
+            width: '100%', height: 90, background: '#e3e7ee', borderRadius: 8,
+            display:'flex',alignItems:'center',justifyContent:'center',fontSize:36,color:'#aaa',marginBottom:8
+          }}>📁</div>
+          <div style={{fontWeight:'bold',fontSize:'1.1rem'}}>All Folders</div>
+          <div style={{color:'var(--text-muted,#888)',fontSize:'0.97em'}}>({folderNames.reduce((a,f)=>a+(folders[f]?.length||0),0)} images)</div>
+        </div>
+        {/* Folder Cards */}
+        {folderNames.map(folder => {
+          const imgs = folders[folder] || [];
+          const preview = imgs[0]?.url;
+          return (
+            <div
+              className={`folder-card${selectedFolder===folder?' selected':''}`}
+              key={folder}
+              style={{minWidth:160,cursor:'pointer',scrollSnapAlign:'start',position:'relative'}}
+              onClick={()=>setSelectedFolder(folder)}
+              tabIndex={0}
+              onKeyDown={e=>{if(e.key==='Enter')setSelectedFolder(folder);}}
+              onMouseEnter={e=>{
+                if(window.innerWidth>700 && imgs.length>1) {
+                  const pop = document.createElement('div');
+                  pop.className = 'folder-popover';
+                  pop.style.position = 'absolute';
+                  pop.style.top = '100px';
+                  pop.style.left = '0';
+                  pop.style.zIndex = '2000';
+                  pop.style.background = 'var(--bg-card,#fff)';
+                  pop.style.border = '1px solid var(--border,#eee)';
+                  pop.style.borderRadius = '8px';
+                  pop.style.padding = '0.7rem';
+                  pop.style.boxShadow = '0 4px 24px #0002';
+                  pop.style.display = 'flex';
+                  pop.style.gap = '0.4rem';
+                  pop.style.pointerEvents = 'none';
+                  pop.style.transition = 'opacity 0.2s';
+                  imgs.slice(0,4).forEach(img => {
+                    const thumb = document.createElement('img');
+                    thumb.src = img.url;
+                    thumb.alt = img.name;
+                    thumb.style.width = '54px';
+                    thumb.style.height = '54px';
+                    thumb.style.objectFit = 'cover';
+                    thumb.style.borderRadius = '6px';
+                    thumb.style.border = '1px solid #eee';
+                    pop.appendChild(thumb);
+                  });
+                  e.currentTarget.appendChild(pop);
+                  e.currentTarget._popover = pop;
+                }
+              }}
+              onMouseLeave={e=>{
+                if(e.currentTarget._popover){
+                  e.currentTarget.removeChild(e.currentTarget._popover);
+                  e.currentTarget._popover = null;
+                }
+              }}
+            >
+              <div style={{
+                width: '100%', height: 90, background: '#e3e7ee', borderRadius: 8,
+                display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8,
+                overflow:'hidden',position:'relative'
+              }}>
+                {preview ? (
+                  <img src={preview} alt={folder} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:8}}/>
+                ) : (
+                  <span style={{fontSize:36,color:'#bbb'}}>📁</span>
+                )}
+              </div>
+              <div style={{fontWeight:'bold',fontSize:'1.1rem',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}} title={folder}>{folder}</div>
+              <div style={{color:'var(--text-muted,#888)',fontSize:'0.97em'}}>({imgs.length} images)</div>
+            </div>
+          );
+        })}
       </div>
       {images.length === 0 ? (
         <div style={{color:'var(--text-muted, #888)',marginTop:'2rem'}}>No images found in the selected folder.</div>
