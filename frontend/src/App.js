@@ -32,6 +32,7 @@ function App() {
   const [folderImages, setFolderImages] = useState([]);
   const [uploadingGroup, setUploadingGroup] = useState(false);
   const [groupUploadError, setGroupUploadError] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
 
   const [folders, setFolders] = useState({});
@@ -60,42 +61,50 @@ function App() {
     fetchFolders();
   }, []);
 
-  // Handle group image upload
+  // Handle group image upload with progress
   const handleGroupUpload = (e) => {
     e.preventDefault();
     setUploadingGroup(true);
     setGroupUploadError(null);
+    setUploadProgress(0);
     const formData = new FormData();
     formData.append('folder', folderName);
     for (let i = 0; i < folderImages.length; i++) {
       formData.append('images', folderImages[i]);
     }
-    fetch('https://photoportfolio-backend-839093975626.us-central1.run.app/api/upload', {
-      method: 'POST',
-      body: formData
-    })
-      .then(async res => {
-        if (!res.ok) {
-          let msg = 'Failed to upload images';
-          try {
-            const data = await res.json();
-            if (data && data.error) msg = data.error;
-          } catch {}
-          throw new Error(msg);
-        }
-        return res.json();
-      })
-      .then(() => {
+    const xhr = new window.XMLHttpRequest();
+    xhr.open('POST', 'https://photoportfolio-backend-839093975626.us-central1.run.app/api/upload');
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        setUploadProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
         setFolderName("");
         setFolderImages([]);
         setUploadingGroup(false);
+        setUploadProgress(0);
         fetchFolders();
-      })
-      .catch(err => {
-        setGroupUploadError(err.message);
+      } else {
+        let msg = 'Failed to upload images';
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (data && data.error) msg = data.error;
+        } catch {}
+        setGroupUploadError(msg);
         setUploadingGroup(false);
-      });
+        setUploadProgress(0);
+      }
+    };
+    xhr.onerror = () => {
+      setGroupUploadError('Upload failed: network error');
+      setUploadingGroup(false);
+      setUploadProgress(0);
+    };
+    xhr.send(formData);
   };
+
 
   // Delete image
   const handleDeleteImage = async (folder, name) => {
@@ -198,6 +207,7 @@ function App() {
           uploadingGroup={uploadingGroup}
           groupUploadError={groupUploadError}
           handleGroupUpload={handleGroupUpload}
+          uploadProgress={uploadProgress}
           folders={folders}
           loadingFolders={loadingFolders}
           foldersError={foldersError}

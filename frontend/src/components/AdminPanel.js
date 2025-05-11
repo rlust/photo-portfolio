@@ -2,6 +2,7 @@ import React from "react";
 
 export default function AdminPanel({
   folderName, setFolderName, folderImages, setFolderImages, uploadingGroup, groupUploadError, handleGroupUpload,
+  uploadProgress,
   folders, loadingFolders, foldersError, handleDeleteFolder, handleDeleteImage
 }) {
   return (
@@ -32,6 +33,14 @@ export default function AdminPanel({
         <button type="submit" disabled={uploadingGroup} style={{padding:'0.5rem 1.5rem',background:'#2a5298',color:'#fff',border:'none',borderRadius:'4px',fontWeight:'bold'}}>
           {uploadingGroup ? 'Uploading...' : 'Upload Images'}
         </button>
+        {uploadingGroup && (
+          <div style={{marginTop:'0.5rem'}}>
+            <div style={{height:'8px',background:'#eee',borderRadius:'4px',overflow:'hidden',marginBottom:'0.3rem'}}>
+              <div style={{width:`${uploadProgress}%`,height:'100%',background:'#2a5298',transition:'width 0.2s'}}></div>
+            </div>
+            <span style={{fontSize:'0.97em',color:'#2a5298',fontWeight:'bold'}}>{uploadProgress}%</span>
+          </div>
+        )}
         {groupUploadError && <div style={{color:'red',marginTop:'0.5rem'}}>{groupUploadError}</div>}
       </form>
       <h3>Folders & Images (with Admin Controls)</h3>
