@@ -1,7 +1,10 @@
 [
   {
-    "origin": ["https://photoportfolio-app.windsurf.build"],
-    "method": ["GET", "HEAD", "PUT", "POST", "DELETE"],
+    "origin": [
+      "https://photoportfolio-app.windsurf.build",
+      "https://photo-portfolio-cloud.windsurf.build"
+    ],
+    "method": ["GET", "HEAD", "PUT", "POST", "DELETE", "OPTIONS"],
     "responseHeader": ["Content-Type", "x-goog-resumable", "x-goog-meta-*"],
     "maxAgeSeconds": 3600
   }

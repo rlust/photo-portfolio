@@ -4,8 +4,19 @@ import React, { useEffect, useState } from 'react';
 import GalleryView from './components/GalleryView';
 import AdminPanel from './components/AdminPanel';
 import LightboxModal from './components/LightboxModal';
+import LargeBatchUpload from './components/LargeBatchUpload';
+
+// --- Web Search ---
+const WEB_SEARCH_API = 'https://photoportfolio-backend-839093975626.us-central1.run.app/api/web-search';
+
 
 function App() {
+  const [tab, setTab] = useState('gallery');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(null);
+
 
   // Fetch photos (removed, no longer needed)
   // useEffect(() => {
@@ -61,13 +72,16 @@ function App() {
     fetchFolders();
   }, []);
 
-  // Helper: batch files so each batch is <= 32MB
-  function batchFiles(files, maxBatchSizeMB = 32) {
+  // Helper: batch files so each batch is <= 31MB (safety margin for backend limit)
+  function batchFiles(files, maxBatchSizeMB = 31) {
     const batches = [];
     let currentBatch = [];
     let currentBatchSize = 0;
     for (const file of files) {
       const fileSizeMB = file.size / (1024 * 1024);
+      if (fileSizeMB > maxBatchSizeMB) {
+        throw new Error(`File ${file.name} is too large (${fileSizeMB.toFixed(2)}MB). Max allowed is ${maxBatchSizeMB}MB.`);
+      }
       if (currentBatch.length && (currentBatchSize + fileSizeMB > maxBatchSizeMB)) {
         batches.push(currentBatch);
         currentBatch = [];
@@ -80,20 +94,33 @@ function App() {
     return batches;
   }
 
-  // Handle group image upload with batching and progress
+  // Handle group image upload with batching and progress + detailed logging
   const handleGroupUpload = async (e) => {
     e.preventDefault();
     setUploadingGroup(true);
     setGroupUploadError(null);
     setUploadProgress(0);
-    const batches = batchFiles(folderImages, 32);
+    let batches;
+    try {
+      batches = batchFiles(folderImages, 32);
+    } catch (err) {
+      setGroupUploadError(err.message);
+      setUploadingGroup(false);
+      setUploadProgress(0);
+      return;
+    }
     let uploadedCount = 0;
     try {
       for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
         const batch = batches[batchIdx];
+        if (!batch.length) continue;
+        const batchSize = batch.reduce((a, f) => a + f.size, 0);
+        console.log(`Uploading batch ${batchIdx + 1}/${batches.length} (${batch.length} files, ${(batchSize/(1024*1024)).toFixed(2)}MB):`, batch.map(f => f.name));
         const formData = new FormData();
         formData.append('folder', folderName);
         batch.forEach(file => formData.append('images', file));
+        // Calculate base uploaded count for this batch
+        const baseUploadedCount = uploadedCount;
         await new Promise((resolve, reject) => {
           const xhr = new window.XMLHttpRequest();
           xhr.open('POST', 'https://photoportfolio-backend-839093975626.us-central1.run.app/api/upload');
@@ -101,16 +128,17 @@ function App() {
             if (e.lengthComputable) {
               // Progress: percent of all batches
               const batchProgress = (e.loaded / e.total) * 100;
-              const totalProgress = Math.round(((uploadedCount + batchProgress / 100 * batch.length) / folderImages.length) * 100);
+              const totalUploaded = baseUploadedCount + (batchProgress / 100 * batch.length);
+              const totalProgress = Math.round((totalUploaded / folderImages.length) * 100);
               setUploadProgress(totalProgress > 100 ? 100 : totalProgress);
             }
           };
           xhr.onload = () => {
+            console.log(`Batch ${batchIdx + 1} upload complete, status:`, xhr.status, xhr.responseText);
             if (xhr.status >= 200 && xhr.status < 300) {
-              uploadedCount += batch.length;
               resolve();
             } else {
-              let msg = 'Failed to upload images';
+              let msg = `Failed to upload batch ${batchIdx + 1}`;
               try {
                 const data = JSON.parse(xhr.responseText);
                 if (data && data.error) msg = data.error;
@@ -119,10 +147,13 @@ function App() {
             }
           };
           xhr.onerror = () => {
-            reject(new Error('Upload failed: network error'));
+            console.error(`Network error uploading batch ${batchIdx + 1}`);
+            reject(new Error(`Upload failed: network error (batch ${batchIdx + 1})`));
           };
           xhr.send(formData);
         });
+        // Only increment after batch is done
+        uploadedCount += batch.length;
       }
       setFolderName("");
       setFolderImages([]);
@@ -133,6 +164,7 @@ function App() {
       setGroupUploadError(err.message);
       setUploadingGroup(false);
       setUploadProgress(0);
+      console.error('Upload error:', err);
     }
   };
 
@@ -165,9 +197,6 @@ function App() {
     }
   };
 
-  // User/Admin view toggle
-  const [adminMode, setAdminMode] = useState(false);
-
   // Lightbox and carousel state
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [carouselIndex, setCarouselIndex] = useState(0);
@@ -194,18 +223,70 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [lightboxOpen, allImages.length]);
 
+  // Web search handler
+  const handleWebSearch = async (e) => {
+    e.preventDefault();
+    setSearchLoading(true);
+    setSearchError(null);
+    setSearchResults(null);
+    try {
+      const resp = await fetch(`${WEB_SEARCH_API}?q=${encodeURIComponent(searchQuery)}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      setSearchResults(data.items || []);
+    } catch (err) {
+      setSearchError(err.message);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
   return (
     <div className="App">
       <header style={{padding: '2.5rem 0 1.2rem 0', background: '#fff', color: '#222', boxShadow: '0 2px 8px #0001', marginBottom: 0}}>
         <h1 style={{fontSize: '2.5rem', marginBottom: '1rem', letterSpacing: '2px', fontWeight: 700, fontFamily:'serif'}}>Randy Lust Photography</h1>
-        <div style={{display:'flex',justifyContent:'center',marginBottom:'1rem'}}>
-          <button onClick={()=>setAdminMode(false)} style={{marginRight:'0.5rem',padding:'0.5rem 1.2rem',borderRadius:'4px',border:'none',background:!adminMode?'#222':'#eee',color:!adminMode?'#fff':'#444',fontWeight:'bold',cursor:'pointer',fontSize:'1.1rem'}}>Gallery</button>
-          <button onClick={()=>setAdminMode(true)} style={{padding:'0.5rem 1.2rem',borderRadius:'4px',border:'none',background:adminMode?'#222':'#eee',color:adminMode?'#fff':'#444',fontWeight:'bold',cursor:'pointer',fontSize:'1.1rem'}}>Admin</button>
+        <div style={{display:'flex',justifyContent:'center',marginBottom:'1rem',gap:'0.5rem'}}>
+          <button onClick={()=>setTab('gallery')} style={{padding:'0.5rem 1.2rem',borderRadius:'4px',border:'none',background:tab==='gallery'?'#222':'#eee',color:tab==='gallery'?'#fff':'#444',fontWeight:'bold',cursor:'pointer',fontSize:'1.1rem'}}>Gallery</button>
+          <button onClick={()=>setTab('admin')} style={{padding:'0.5rem 1.2rem',borderRadius:'4px',border:'none',background:tab==='admin'?'#222':'#eee',color:tab==='admin'?'#fff':'#444',fontWeight:'bold',cursor:'pointer',fontSize:'1.1rem'}}>Admin</button>
+          <button onClick={()=>setTab('largebatch')} style={{padding:'0.5rem 1.2rem',borderRadius:'4px',border:'none',background:tab==='largebatch'?'#222':'#eee',color:tab==='largebatch'?'#fff':'#444',fontWeight:'bold',cursor:'pointer',fontSize:'1.1rem'}}>Large Batch Upload</button>
         </div>
       </header>
 
+      {/* Web Search Bar */}
+      <section style={{margin:'2rem auto',maxWidth:600,padding:'1.5rem',background:'#fff',borderRadius:'8px',boxShadow:'0 2px 8px #0001'}}>
+        <form onSubmit={handleWebSearch} style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
+          <input
+            type="text"
+            placeholder="Search the web..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{flex:1,padding:'0.7rem',fontSize:'1.1rem',border:'1px solid #ccc',borderRadius:'4px'}}
+          />
+          <button type="submit" disabled={searchLoading || !searchQuery.trim()} style={{padding:'0.7rem 1.3rem',fontSize:'1.1rem',borderRadius:'4px',border:'none',background:'#2a5298',color:'#fff',fontWeight:'bold',cursor:'pointer'}}>Search</button>
+        </form>
+        {searchLoading && <div style={{marginTop:'1rem',color:'#888'}}>Searching...</div>}
+        {searchError && <div style={{marginTop:'1rem',color:'red'}}>Error: {searchError}</div>}
+        {searchResults && (
+          <div style={{marginTop:'1.2rem'}}>
+            {searchResults.length === 0 ? (
+              <div style={{color:'#888'}}>No results found.</div>
+            ) : (
+              <ul style={{listStyle:'none',padding:0}}>
+                {searchResults.map((item,idx) => (
+                  <li key={item.link || idx} style={{marginBottom:'1.1rem',borderBottom:'1px solid #eee',paddingBottom:'0.8rem'}}>
+                    <a href={item.link} target="_blank" rel="noopener noreferrer" style={{fontSize:'1.09rem',fontWeight:'bold',color:'#2a5298',textDecoration:'none'}}>{item.title}</a>
+                    <div style={{color:'#444',marginTop:'0.2rem'}}>{item.snippet}</div>
+                    <div style={{color:'#888',fontSize:'0.97em',marginTop:'0.12rem'}}>{item.displayLink || item.link}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </section>
+
       {/* Full-size scrollable image carousel with lightbox and autoplay */}
-      {!adminMode && allImages.length > 0 && (
+      {allImages.length > 0 && (
         <section style={{width:'100%',overflowX:'auto',padding:'1.5rem 0',background:'#f7f7fa',marginBottom:'2rem',boxShadow:'0 2px 8px #0001'}}>
           <div style={{display:'flex',gap:'2rem',padding:'0 2rem',alignItems:'center',minHeight:350}}>
             {allImages.map((img,idx) => (
@@ -226,10 +307,9 @@ function App() {
         </section>
       )}
 
-      {/* Main content: Gallery or Admin */}
-      {!adminMode ? (
-        <GalleryView folders={folders} />
-      ) : (
+      {/* Main content: tabbed mode */}
+      {tab === 'gallery' && <GalleryView folders={folders} />}
+      {tab === 'admin' && (
         <AdminPanel
           folderName={folderName}
           setFolderName={setFolderName}
@@ -245,6 +325,9 @@ function App() {
           handleDeleteFolder={handleDeleteFolder}
           handleDeleteImage={handleDeleteImage}
         />
+      )}
+      {tab === 'largebatch' && (
+        <LargeBatchUpload onUploaded={fetchFolders} />
       )}
     </div>
   );

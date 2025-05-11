@@ -1,0 +1,9 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/photoportfolio-backend', '.']
+    dir: 'backend'
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/photoportfolio-backend']
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args: ['run', 'deploy', 'photoportfolio-backend', '--image', 'gcr.io/$PROJECT_ID/photoportfolio-backend', '--region', 'us-central1', '--platform', 'managed', '--allow-unauthenticated']

@@ -1,0 +1,25 @@
+# Node
+node_modules/
+build/
+dist/
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+.env
+*.egg-info/
+
+# VSCode
+.vscode/
+
+# Mac
+.DS_Store
+
+# Service Account Keys
+
+!frontend/public/*.json

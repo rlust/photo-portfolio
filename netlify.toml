@@ -1,0 +1,3 @@
+[build]
+  publish = "frontend/build"
+  command = "cd frontend && npm install && npm run build"
