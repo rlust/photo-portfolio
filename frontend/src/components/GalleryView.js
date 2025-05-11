@@ -149,7 +149,7 @@ export default function GalleryView({ folders }) {
                 overflow:'hidden',position:'relative'
               }}>
                 {preview ? (
-                  <img src={preview} alt={folder} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:8}}/>
+                  <img src={preview} alt={folder} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:8}} onError={e => {e.target.onerror=null; e.target.src='/notfound.png';}}/>
                 ) : (
                   <span style={{fontSize:36,color:'#bbb'}}>📁</span>
                 )}
@@ -173,7 +173,7 @@ export default function GalleryView({ folders }) {
                   title={img.name || ''}
                   className="gallery-img"
                   onClick={() => openLightbox(idx)}
-                  onError={e => {e.target.onerror=null; e.target.src='https://via.placeholder.com/160x160?text=Image+not+found';}}
+                  onError={e => {e.target.onerror=null; e.target.src='/notfound.png';}}
                 />
               ) : (
                 <div style={{width:160,height:160,background:'#eee',display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'6px',border:'1px solid #ddd'}}>No image</div>
