@@ -2,8 +2,9 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app, origins=["https://photoportfolio-app.windsurf.build"], resources=r'/api/*', allow_headers='Content-Type', expose_headers='Content-Type', supports_credentials=True)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 32 MB limit (Cloud Run/App Engine max)
-CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+CORS(app, resources={r"/api/*": {"origins": ["https://photoportfolio-app.windsurf.build"]}})
 
 # In-memory mock DB (replace with real DB integration later)
 users = []
@@ -39,6 +40,7 @@ from google.cloud import storage
 import uuid
 import sqlite3
 import threading
+import datetime
 
 # Set your GCS bucket name
 GCS_BUCKET = 'photoportfolio-uploads'
@@ -175,6 +177,16 @@ def delete_folder_from_db(folder):
             blob.delete()
         return True
 
+from flask import make_response
+
+@app.errorhandler(413)
+def handle_413(e):
+    response = make_response(jsonify({'error': 'Request too large. Each batch must be under 32MB.'}), 413)
+    response.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+    return response
+
 @app.route('/api/upload', methods=['POST'])
 def upload_photos():
     import traceback
@@ -182,7 +194,11 @@ def upload_photos():
         folder = request.form.get('folder')
         files = request.files.getlist('images')
         if not folder or not files:
-            return jsonify({'error': 'Folder name and images are required.'}), 400
+            resp = make_response(jsonify({'error': 'Folder name and images are required.'}), 400)
+            resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+            resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+            resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+            return resp
         folder = secure_filename(folder)
         add_folder_to_db(folder)
         uploaded = []
@@ -194,11 +210,23 @@ def upload_photos():
                 uploaded.append({'name': photo_info['name'], 'url': photo_info['url'], 'mimetype': photo_info['mimetype']})
             except Exception as e:
                 print(f"[UPLOAD ERROR] {e}\n{traceback.format_exc()}")
-                return jsonify({'error': f'Failed to upload {file.filename}: {str(e)}'}), 500
-        return jsonify({'folder': folder, 'uploaded': uploaded, 'folders': get_all_folders()}), 201
+                resp = make_response(jsonify({'error': f'Failed to upload {file.filename}: {str(e)}'}), 500)
+                resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+                resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+                resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+                return resp
+        resp = make_response(jsonify({'folder': folder, 'uploaded': uploaded, 'folders': get_all_folders()}), 201)
+        resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        return resp
     except Exception as e:
         print(f"[UPLOAD ERROR] {e}\n{traceback.format_exc()}")
-        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
+        resp = make_response(jsonify({'error': f'Upload failed: {str(e)}'}), 500)
+        resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        return resp
 
 @app.route('/api/folders', methods=['GET'])
 def get_folders():
@@ -276,6 +304,64 @@ def delete_photo(folder, name):
         return jsonify({'message': f'Photo {name} deleted from folder {folder}.'}), 200
     else:
         return jsonify({'error': 'Photo not found'}), 404
+
+# --- Direct-to-GCS Upload Endpoints ---
+from flask import make_response
+
+@app.route('/api/signed-url', methods=['POST', 'OPTIONS'])
+def get_signed_url():
+    if request.method == 'OPTIONS':
+        # CORS preflight request
+        return '', 200
+    import traceback
+    try:
+        data = request.get_json()
+        filename = data.get('filename')
+        content_type = data.get('contentType')
+        folder = secure_filename(data.get('folder', 'uploads'))
+        if not filename or not content_type or not folder:
+            resp = make_response(jsonify({'error': 'filename, contentType, and folder are required'}), 400)
+            resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+            return resp
+        unique_name = f"{uuid.uuid4().hex}_{secure_filename(filename)}"
+        gcs_path = f"folders/{folder}/{unique_name}"
+        client = get_gcs_client()
+        bucket = client.bucket(GCS_BUCKET)
+        blob = bucket.blob(gcs_path)
+        url = blob.generate_signed_url(
+            version="v4",
+            expiration=datetime.timedelta(minutes=15),
+            method="PUT",
+            content_type=content_type,
+        )
+        public_url = f"https://storage.googleapis.com/{GCS_BUCKET}/{gcs_path}"
+        resp = make_response(jsonify({'url': url, 'publicUrl': public_url, 'gcsPath': gcs_path}), 200)
+        resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+        return resp
+    except Exception as e:
+        print('Error in /api/signed-url:', str(e))
+        traceback.print_exc()
+        resp = make_response(jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500)
+        resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+        return resp
+
+@app.route('/api/register-upload', methods=['POST'])
+def register_upload():
+    data = request.get_json()
+    filename = data.get('filename')
+    content_type = data.get('contentType')
+    folder = secure_filename(data.get('folder', 'uploads'))
+    public_url = data.get('publicUrl')
+    gcs_path = data.get('gcsPath')
+    if not filename or not content_type or not folder or not public_url:
+        resp = make_response(jsonify({'error': 'filename, contentType, folder, and publicUrl are required'}), 400)
+        resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+        return resp
+    add_folder_to_db(folder)
+    add_photo_to_db(folder, filename, public_url, content_type, gcs_path or '')
+    resp = make_response(jsonify({'ok': True}), 200)
+    resp.headers['Access-Control-Allow-Origin'] = 'https://photoportfolio-app.windsurf.build'
+    return resp
 
 import os
 port = int(os.environ.get('PORT', 8080))
