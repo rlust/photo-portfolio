@@ -1,10 +1,14 @@
 import React, { useState, useRef, useEffect } from "react";
 
 export default function GalleryView({ folders }) {
-  // null means "All Folders"
+  // All hooks must be at the top
   const [selectedFolder, setSelectedFolder] = useState(null);
   const scrollRef = useRef(null);
   const [scrollIndex, setScrollIndex] = useState(0);
+  const [theme, setTheme] = useState('light');
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIdx, setLightboxIdx] = useState(0);
+  const [zoomed, setZoomed] = useState(false);
 
   const folderNames = Object.keys(folders);
 
@@ -34,22 +38,14 @@ export default function GalleryView({ folders }) {
     }
   }, [scrollIndex, images.length]);
 
-  if (!folders || folderNames.length === 0) {
-    return <div style={{marginTop:'2rem', color:'#666', fontSize:'1.2rem'}}>No folders or images found. Try uploading images from the Admin panel.</div>;
-  }
-
-  // Gallery UI with folder selector
-  // Theme toggle state (local, fallback if not provided by parent)
-  const [theme, setTheme] = useState('light');
   useEffect(() => {
     document.body.classList.remove('theme-dark', 'theme-light');
     document.body.classList.add('theme-' + theme);
   }, [theme]);
 
-  // Lightbox state
-  const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [lightboxIdx, setLightboxIdx] = useState(0);
-  const [zoomed, setZoomed] = useState(false);
+  if (!folders || folderNames.length === 0) {
+    return <div style={{marginTop:'2rem', color:'#666', fontSize:'1.2rem'}}>No folders or images found. Try uploading images from the Admin panel.</div>;
+  }
 
   const openLightbox = idx => {
     setLightboxIdx(idx);
