@@ -54,6 +54,8 @@ import uuid
 import sqlite3
 import threading
 import datetime
+from sentence_transformers import SentenceTransformer
+import numpy as np
 
 # Set your GCS bucket name
 GCS_BUCKET = 'photoportfolio-uploads'
@@ -377,6 +379,46 @@ def register_upload():
     return resp
 
 import os
+# --- AI-powered Semantic Search Endpoint ---
+# Model is loaded at module level to avoid reloading on every request
+_semantic_model = SentenceTransformer('all-MiniLM-L6-v2')
+
+@app.route('/api/photos/semantic-search', methods=['GET'])
+def semantic_search_photos():
+    query = request.args.get('q', '').strip()
+    if not query:
+        return jsonify({'error': 'Missing query'}), 400
+    # Fetch all photo metadata from DB
+    with _db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('SELECT folder, name, url, mimetype, uploaded_at FROM photos')
+        rows = c.fetchall()
+        conn.close()
+    if not rows:
+        return jsonify([])
+    # Prepare texts for embedding
+    photo_texts = [f"{name} {folder} {mimetype}" for folder, name, url, mimetype, uploaded_at in rows]
+    photo_embeddings = _semantic_model.encode(photo_texts)
+    query_embedding = _semantic_model.encode([query])[0]
+    # Compute cosine similarity
+    similarities = np.dot(photo_embeddings, query_embedding) / (
+        np.linalg.norm(photo_embeddings, axis=1) * np.linalg.norm(query_embedding) + 1e-8
+    )
+    top_indices = np.argsort(similarities)[::-1][:10]  # Top 10
+    results = [
+        {
+            'folder': rows[i][0],
+            'name': rows[i][1],
+            'url': rows[i][2],
+            'mimetype': rows[i][3],
+            'uploaded_at': rows[i][4],
+            'score': float(similarities[i])
+        }
+        for i in top_indices
+    ]
+    return jsonify(results)
+
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8080))
