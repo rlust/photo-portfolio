@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 # In-memory mock DB (replace with real DB integration later)
 users = []
@@ -90,10 +90,10 @@ def upload_to_gcs(file, folder):
     blob_path = f"folders/{folder}/{unique_name}"
     blob = bucket.blob(blob_path)
     blob.upload_from_file(file, content_type=file.mimetype)
-    blob.make_public()
+    # Do not call blob.make_public(); rely on bucket-level IAM for public access
     return {
         'name': filename,
-        'url': blob.public_url,
+        'url': f'https://storage.googleapis.com/{bucket.name}/{blob_path}',
         'mimetype': file.mimetype,
         'gcs_path': blob_path
     }
@@ -176,19 +176,28 @@ def delete_folder_from_db(folder):
 
 @app.route('/api/upload', methods=['POST'])
 def upload_photos():
-    folder = request.form.get('folder')
-    files = request.files.getlist('images')
-    if not folder or not files:
-        return jsonify({'error': 'Folder name and images are required.'}), 400
-    folder = secure_filename(folder)
-    add_folder_to_db(folder)
-    uploaded = []
-    for file in files:
-        file.stream.seek(0)
-        photo_info = upload_to_gcs(file, folder)
-        add_photo_to_db(folder, photo_info['name'], photo_info['url'], photo_info['mimetype'], photo_info['gcs_path'])
-        uploaded.append({'name': photo_info['name'], 'url': photo_info['url'], 'mimetype': photo_info['mimetype']})
-    return jsonify({'folder': folder, 'uploaded': uploaded, 'folders': get_all_folders()}), 201
+    import traceback
+    try:
+        folder = request.form.get('folder')
+        files = request.files.getlist('images')
+        if not folder or not files:
+            return jsonify({'error': 'Folder name and images are required.'}), 400
+        folder = secure_filename(folder)
+        add_folder_to_db(folder)
+        uploaded = []
+        for file in files:
+            try:
+                file.stream.seek(0)
+                photo_info = upload_to_gcs(file, folder)
+                add_photo_to_db(folder, photo_info['name'], photo_info['url'], photo_info['mimetype'], photo_info['gcs_path'])
+                uploaded.append({'name': photo_info['name'], 'url': photo_info['url'], 'mimetype': photo_info['mimetype']})
+            except Exception as e:
+                print(f"[UPLOAD ERROR] {e}\n{traceback.format_exc()}")
+                return jsonify({'error': f'Failed to upload {file.filename}: {str(e)}'}), 500
+        return jsonify({'folder': folder, 'uploaded': uploaded, 'folders': get_all_folders()}), 201
+    except Exception as e:
+        print(f"[UPLOAD ERROR] {e}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
 @app.route('/api/folders', methods=['GET'])
 def get_folders():

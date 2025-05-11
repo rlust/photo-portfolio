@@ -13,19 +13,45 @@
   }
 }
 
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+body {
+  background: #f7f7fa;
+  margin: 0;
+  font-family: 'Segoe UI', 'Helvetica Neue', Arial, 'Liberation Sans', sans-serif;
+  color: #222;
 }
 
-.App-link {
-  color: #61dafb;
+.App {
+  min-height: 100vh;
+  background: #f7f7fa;
+}
+
+/* Remove large header backgrounds, make spacing modern */
+header {
+  background: #fff;
+  box-shadow: 0 2px 8px #0001;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0;
+}
+
+section {
+  background: none;
+}
+
+/* Carousel styles */
+.carousel {
+  width: 100%;
+  overflow-x: auto;
+  background: #f7f7fa;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 8px #0001;
+}
+
+.carousel-inner {
+  display: flex;
+  gap: 2rem;
+  padding: 0 2rem;
+  align-items: center;
+  min-height: 350px;
 }
 
 @keyframes App-logo-spin {
