@@ -61,48 +61,79 @@ function App() {
     fetchFolders();
   }, []);
 
-  // Handle group image upload with progress
-  const handleGroupUpload = (e) => {
+  // Helper: batch files so each batch is <= 32MB
+  function batchFiles(files, maxBatchSizeMB = 32) {
+    const batches = [];
+    let currentBatch = [];
+    let currentBatchSize = 0;
+    for (const file of files) {
+      const fileSizeMB = file.size / (1024 * 1024);
+      if (currentBatch.length && (currentBatchSize + fileSizeMB > maxBatchSizeMB)) {
+        batches.push(currentBatch);
+        currentBatch = [];
+        currentBatchSize = 0;
+      }
+      currentBatch.push(file);
+      currentBatchSize += fileSizeMB;
+    }
+    if (currentBatch.length) batches.push(currentBatch);
+    return batches;
+  }
+
+  // Handle group image upload with batching and progress
+  const handleGroupUpload = async (e) => {
     e.preventDefault();
     setUploadingGroup(true);
     setGroupUploadError(null);
     setUploadProgress(0);
-    const formData = new FormData();
-    formData.append('folder', folderName);
-    for (let i = 0; i < folderImages.length; i++) {
-      formData.append('images', folderImages[i]);
-    }
-    const xhr = new window.XMLHttpRequest();
-    xhr.open('POST', 'https://photoportfolio-backend-839093975626.us-central1.run.app/api/upload');
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        setUploadProgress(Math.round((e.loaded / e.total) * 100));
+    const batches = batchFiles(folderImages, 32);
+    let uploadedCount = 0;
+    try {
+      for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+        const batch = batches[batchIdx];
+        const formData = new FormData();
+        formData.append('folder', folderName);
+        batch.forEach(file => formData.append('images', file));
+        await new Promise((resolve, reject) => {
+          const xhr = new window.XMLHttpRequest();
+          xhr.open('POST', 'https://photoportfolio-backend-839093975626.us-central1.run.app/api/upload');
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              // Progress: percent of all batches
+              const batchProgress = (e.loaded / e.total) * 100;
+              const totalProgress = Math.round(((uploadedCount + batchProgress / 100 * batch.length) / folderImages.length) * 100);
+              setUploadProgress(totalProgress > 100 ? 100 : totalProgress);
+            }
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              uploadedCount += batch.length;
+              resolve();
+            } else {
+              let msg = 'Failed to upload images';
+              try {
+                const data = JSON.parse(xhr.responseText);
+                if (data && data.error) msg = data.error;
+              } catch {}
+              reject(new Error(msg));
+            }
+          };
+          xhr.onerror = () => {
+            reject(new Error('Upload failed: network error'));
+          };
+          xhr.send(formData);
+        });
       }
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        setFolderName("");
-        setFolderImages([]);
-        setUploadingGroup(false);
-        setUploadProgress(0);
-        fetchFolders();
-      } else {
-        let msg = 'Failed to upload images';
-        try {
-          const data = JSON.parse(xhr.responseText);
-          if (data && data.error) msg = data.error;
-        } catch {}
-        setGroupUploadError(msg);
-        setUploadingGroup(false);
-        setUploadProgress(0);
-      }
-    };
-    xhr.onerror = () => {
-      setGroupUploadError('Upload failed: network error');
+      setFolderName("");
+      setFolderImages([]);
       setUploadingGroup(false);
       setUploadProgress(0);
-    };
-    xhr.send(formData);
+      fetchFolders();
+    } catch (err) {
+      setGroupUploadError(err.message);
+      setUploadingGroup(false);
+      setUploadProgress(0);
+    }
   };
 
 

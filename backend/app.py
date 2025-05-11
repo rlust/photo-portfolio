@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 32 MB limit (Cloud Run/App Engine max)
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 # In-memory mock DB (replace with real DB integration later)
