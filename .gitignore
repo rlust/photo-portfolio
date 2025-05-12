@@ -24,3 +24,6 @@ __pycache__/
 
 !frontend/public/*.json
 backend/photo-portfolio-459415-b9617545efb7.json
+
+# Local Netlify folder
+.netlify

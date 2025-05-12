@@ -6,8 +6,9 @@ import AdminPanel from './components/AdminPanel';
 import LightboxModal from './components/LightboxModal';
 import LargeBatchUpload from './components/LargeBatchUpload';
 
-// --- Web Search ---
-const WEB_SEARCH_API = 'https://photoportfolio-backend-839093975626.us-central1.run.app/api/web-search';
+// --- AI-Powered File Search ---
+const SEMANTIC_SEARCH_API = 'https://photoportfolio-backend-839093975626.us-central1.run.app/api/photos/semantic-search';
+// const WEB_SEARCH_API = 'https://photoportfolio-backend-839093975626.us-central1.run.app/api/web-search'; // (legacy)
 
 
 function App() {
@@ -17,6 +18,23 @@ function App() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState(null);
 
+  // AI-powered file search handler
+  const handleSemanticSearch = async (e) => {
+    e.preventDefault();
+    setSearchLoading(true);
+    setSearchError(null);
+    setSearchResults(null);
+    try {
+      const resp = await fetch(`${SEMANTIC_SEARCH_API}?q=${encodeURIComponent(searchQuery)}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      setSearchResults(data);
+    } catch (err) {
+      setSearchError(err.message);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
 
   // Fetch photos (removed, no longer needed)
   // useEffect(() => {
@@ -223,24 +241,6 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [lightboxOpen, allImages.length]);
 
-  // Web search handler
-  const handleWebSearch = async (e) => {
-    e.preventDefault();
-    setSearchLoading(true);
-    setSearchError(null);
-    setSearchResults(null);
-    try {
-      const resp = await fetch(`${WEB_SEARCH_API}?q=${encodeURIComponent(searchQuery)}`);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      setSearchResults(data.items || []);
-    } catch (err) {
-      setSearchError(err.message);
-    } finally {
-      setSearchLoading(false);
-    }
-  };
-
   return (
     <div className="App">
       <header style={{padding: '2.5rem 0 1.2rem 0', background: '#fff', color: '#222', boxShadow: '0 2px 8px #0001', marginBottom: 0}}>
@@ -255,36 +255,52 @@ function App() {
 
       {/* Search Tab Content */}
       {tab === 'search' && (
-        <section style={{margin:'2rem auto',maxWidth:600,padding:'1.5rem',background:'#fff',borderRadius:'8px',boxShadow:'0 2px 8px #0001'}}>
-          <form onSubmit={handleWebSearch} style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
+        <section style={{maxWidth:700,margin:'2rem auto',background:'#fff',borderRadius:8,boxShadow:'0 2px 8px #0001',padding:'2rem'}}>
+          <h2 style={{marginBottom:24}}>AI-Powered File Search</h2>
+          <form onSubmit={handleSemanticSearch} style={{display:'flex',gap:8,marginBottom:24}}>
             <input
-              type="text"
-              placeholder="Search the web..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              style={{flex:1,padding:'0.7rem',fontSize:'1.1rem',border:'1px solid #ccc',borderRadius:'4px'}}
+              placeholder="Describe what you're looking for..."
+              style={{flex:1,padding:'0.7rem',fontSize:'1.1rem',borderRadius:6,border:'1px solid #ddd'}}
             />
-            <button type="submit" disabled={searchLoading || !searchQuery.trim()} style={{padding:'0.7rem 1.3rem',fontSize:'1.1rem',borderRadius:'4px',border:'none',background:'#2a5298',color:'#fff',fontWeight:'bold',cursor:'pointer'}}>Search</button>
+            <button type="submit" style={{padding:'0.7rem 1.2rem',fontSize:'1.1rem',borderRadius:6,background:'#2a5298',color:'#fff',border:'none',fontWeight:'bold'}}>
+              Search
+            </button>
           </form>
-          {searchLoading && <div style={{marginTop:'1rem',color:'#888'}}>Searching...</div>}
-          {searchError && <div style={{marginTop:'1rem',color:'red'}}>Error: {searchError}</div>}
+          {searchLoading && <div style={{color:'#888'}}>Searching...</div>}
+          {searchError && <div style={{color:'#c00',marginTop:12}}>Error: {searchError}</div>}
           {searchResults && (
-            <div style={{marginTop:'1.2rem'}}>
+            <div style={{marginTop:24}}>
               {searchResults.length === 0 ? (
-                <div style={{color:'#888'}}>No results found.</div>
+                <div style={{color:'#888'}}>No matching files found.</div>
               ) : (
                 <ul style={{listStyle:'none',padding:0}}>
-                  {searchResults.map((item,idx) => (
-                    <li key={item.link || idx} style={{marginBottom:'1.1rem',borderBottom:'1px solid #eee',paddingBottom:'0.8rem'}}>
-                      <a href={item.link} target="_blank" rel="noopener noreferrer" style={{fontSize:'1.09rem',fontWeight:'bold',color:'#2a5298',textDecoration:'none'}}>{item.title}</a>
-                      <div style={{color:'#444',marginTop:'0.2rem'}}>{item.snippet}</div>
-                      <div style={{color:'#888',fontSize:'0.97em',marginTop:'0.12rem'}}>{item.displayLink || item.link}</div>
+                  {searchResults.map((item, idx) => (
+                    <li key={item.url || idx} style={{marginBottom:18,padding:12,background:'#f7f7fa',borderRadius:7,boxShadow:'0 1px 4px #0001'}}>
+                      <div style={{fontWeight:'bold',fontSize:'1.08rem'}}>{item.name}</div>
+                      <div style={{color:'#888',fontSize:'0.96em'}}>Folder: {item.folder}</div>
+                      <div style={{color:'#888',fontSize:'0.95em'}}>Type: {item.mimetype}</div>
+                      <div style={{color:'#888',fontSize:'0.95em'}}>Uploaded: {item.uploaded_at}</div>
+                      {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" style={{color:'#2a5298',fontWeight:'bold'}}>View File</a>}
+                      {typeof item.score === 'number' && <div style={{color:'#2a5298',fontSize:'0.93em'}}>Relevance: {(item.score*100).toFixed(1)}%</div>}
                     </li>
                   ))}
                 </ul>
               )}
             </div>
           )}
+          {/* Usage Example for Testing */}
+          <div style={{marginTop:32,padding:'1rem',background:'#f0f6ff',borderRadius:6}}>
+            <div style={{fontWeight:'bold',marginBottom:8}}>Usage Example:</div>
+            <div style={{fontSize:'0.98em',color:'#222'}}>Try searching for things like:</div>
+            <ul style={{color:'#333',margin:'8px 0 0 16px',fontSize:'0.97em'}}>
+              <li>"sunset at the beach"</li>
+              <li>"PDF invoices from March"</li>
+              <li>"family vacation 2023"</li>
+              <li>"cat photos"</li>
+            </ul>
+          </div>
         </section>
       )}
       {/* Full-size scrollable image carousel with lightbox and autoplay */}

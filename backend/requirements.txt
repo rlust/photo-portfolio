@@ -1,4 +1,6 @@
 flask==3.0.3
-flask-cors
-requests>=2.32.3
+flask-cors==5.0.1
 google-cloud-storage==2.16.0
+requests==2.32.3
+numpy==1.26.4
+sentence-transformers==2.6.1

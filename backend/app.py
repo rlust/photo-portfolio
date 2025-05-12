@@ -5,11 +5,11 @@ from search import search_bp
 app = Flask(__name__)
 ALLOWED_ORIGINS = [
     "https://photo-portfolio-cloud.windsurf.build",
-    "https://photoportfolio-app.windsurf.build"
+    "https://photoportfolio-app.windsurf.build",
+    "https://photo-frontend-839093975626.us-central1.run.app"
 ]
-CORS(app, origins=ALLOWED_ORIGINS, resources=r'/api/*', allow_headers='Content-Type', expose_headers='Content-Type', supports_credentials=True)
+CORS(app, origins=ALLOWED_ORIGINS, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}}, allow_headers='Content-Type', expose_headers='Content-Type', supports_credentials=True)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 32 MB limit (Cloud Run/App Engine max)
-CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 
 def get_cors_origin():
     origin = request.headers.get('Origin')
@@ -56,6 +56,40 @@ import threading
 import datetime
 from sentence_transformers import SentenceTransformer
 import numpy as np
+
+@app.route('/api/reindex-gcs', methods=['POST'])
+def reindex_gcs():
+    try:
+        client = get_gcs_client()
+        bucket = client.bucket(GCS_BUCKET)
+        blobs = bucket.list_blobs(prefix='folders/')
+        folders = set()
+        file_count = 0
+        for blob in blobs:
+            # Skip the root 'folders/' blob if it exists
+            if blob.name == 'folders/':
+                continue
+            # Parse folder and filename from blob name
+            parts = blob.name.split('/')
+            if len(parts) >= 2:
+                folder = parts[1]
+                if folder:
+                    folders.add(folder)
+                # If this is a file (not a directory marker), add photo
+                if len(parts) >= 3 and not blob.name.endswith('/'):
+                    filename = '/'.join(parts[2:])  # Support nested files
+                    url = f'https://storage.googleapis.com/{bucket.name}/{blob.name}'
+                    mimetype = blob.content_type or 'image/jpeg'
+                    add_folder_to_db(folder)
+                    add_photo_to_db(folder, filename, url, mimetype, blob.name)
+                    file_count += 1
+        # Add all folders found, even if empty
+        for folder in folders:
+            add_folder_to_db(folder)
+        return jsonify({'status': 'ok', 'folders': list(folders), 'indexed_files': file_count}), 200
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
 # Set your GCS bucket name
 GCS_BUCKET = 'photoportfolio-uploads'
@@ -205,48 +239,53 @@ def handle_413(e):
 @app.route('/api/upload', methods=['POST'])
 def upload_photos():
     import traceback
-    try:
-        folder = request.form.get('folder')
-        files = request.files.getlist('images')
-        if not folder or not files:
-            resp = make_response(jsonify({'error': 'Folder name and images are required.'}), 400)
-            resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
-            resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-            resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
-            return resp
-        folder = secure_filename(folder)
-        add_folder_to_db(folder)
-        uploaded = []
-        for file in files:
-            try:
-                file.stream.seek(0)
-                photo_info = upload_to_gcs(file, folder)
-                add_photo_to_db(folder, photo_info['name'], photo_info['url'], photo_info['mimetype'], photo_info['gcs_path'])
-                uploaded.append({'name': photo_info['name'], 'url': photo_info['url'], 'mimetype': photo_info['mimetype']})
-            except Exception as e:
-                print(f"[UPLOAD ERROR] {e}\n{traceback.format_exc()}")
-                resp = make_response(jsonify({'error': f'Failed to upload {file.filename}: {str(e)}'}), 500)
-                resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
-                resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-                resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
-                return resp
-        resp = make_response(jsonify({'folder': folder, 'uploaded': uploaded, 'folders': get_all_folders()}), 201)
+    folder = request.form.get('folder')
+    files = request.files.getlist('images')
+    if not folder or not files:
+        resp = make_response(jsonify({'error': 'Folder name and images are required.'}), 400)
         resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
-        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-        resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, DELETE'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        return resp
+    folder = secure_filename(folder)
+    add_folder_to_db(folder)
+    uploaded = []
+    for file in files:
+        try:
+            file.stream.seek(0)
+            photo_info = upload_to_gcs(file, folder)
+            add_photo_to_db(folder, photo_info['name'], photo_info['url'], photo_info['mimetype'], photo_info['gcs_path'])
+            uploaded.append({'name': photo_info['name'], 'url': photo_info['url'], 'mimetype': photo_info['mimetype']})
+        except Exception as e:
+            print(f"[UPLOAD ERROR] {e}\n{traceback.format_exc()}")
+            # Continue uploading other files, but log error
+    resp = make_response(jsonify({'folder': folder, 'uploaded': uploaded, 'folders': get_all_folders()}), 201)
+    resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
+    resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, DELETE'
+    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    return resp
+
+@app.route('/api/folders', methods=['GET', 'OPTIONS'])
+def get_folders():
+    if request.method == 'OPTIONS':
+        # Preflight CORS
+        resp = make_response('', 204)
+        resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, DELETE'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        return resp
+    try:
+        resp = make_response(jsonify(get_photos_by_folder()))
+        resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, DELETE'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
         return resp
     except Exception as e:
-        print(f"[UPLOAD ERROR] {e}\n{traceback.format_exc()}")
-        resp = make_response(jsonify({'error': f'Upload failed: {str(e)}'}), 500)
+        resp = make_response(jsonify({'error': str(e)}), 500)
         resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
-        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-        resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, DELETE'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
         return resp
-
-@app.route('/api/folders', methods=['GET'])
-def get_folders():
-    # Return folder names and photo metadata (with public URLs)
-    return jsonify(get_photos_by_folder())
 
 @app.route('/api/photos/search', methods=['GET'])
 def search_photos():
@@ -337,6 +376,8 @@ def get_signed_url():
         if not filename or not content_type or not folder:
             resp = make_response(jsonify({'error': 'filename, contentType, and folder are required'}), 400)
             resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
+            resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, DELETE'
+            resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
             return resp
         unique_name = f"{uuid.uuid4().hex}_{secure_filename(filename)}"
         gcs_path = f"folders/{folder}/{unique_name}"
@@ -352,12 +393,16 @@ def get_signed_url():
         public_url = f"https://storage.googleapis.com/{GCS_BUCKET}/{gcs_path}"
         resp = make_response(jsonify({'url': url, 'publicUrl': public_url, 'gcsPath': gcs_path}), 200)
         resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, DELETE'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
         return resp
     except Exception as e:
         print('Error in /api/signed-url:', str(e))
         traceback.print_exc()
         resp = make_response(jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500)
         resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, DELETE'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
         return resp
 
 @app.route('/api/register-upload', methods=['POST'])
@@ -371,11 +416,15 @@ def register_upload():
     if not filename or not content_type or not folder or not public_url:
         resp = make_response(jsonify({'error': 'filename, contentType, folder, and publicUrl are required'}), 400)
         resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, DELETE'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
         return resp
     add_folder_to_db(folder)
     add_photo_to_db(folder, filename, public_url, content_type, gcs_path or '')
     resp = make_response(jsonify({'ok': True}), 200)
     resp.headers['Access-Control-Allow-Origin'] = get_cors_origin()
+    resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, DELETE'
+    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
     return resp
 
 import os
