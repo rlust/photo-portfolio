@@ -89,6 +89,12 @@ export default function GalleryView({ folders }) {
               )}
               <div className="gallery-info">{img.name || 'Untitled'}</div>
               <div className="gallery-folder">{img.folder || selectedFolder}</div>
+              {img.location_tag && (
+                <div style={{fontSize:'0.97em',color:'#579',marginTop:2,display:'flex',alignItems:'center',gap:4}}>
+                  <span role="img" aria-label="location" style={{marginRight:3}}>📍</span>
+                  <span className="gallery-location-tag">{img.location_tag}</span>
+                </div>
+              )}
               {img.mimetype && <div style={{fontSize:'0.9em',color:'var(--text-muted, #888)'}}>{img.mimetype}</div>}
               {img.uploaded_at && <div style={{fontSize:'0.85em',color:'var(--text-muted, #aaa)'}}>{String(img.uploaded_at).slice(0,10)}</div>}
             </div>
@@ -122,11 +128,18 @@ export default function GalleryView({ folders }) {
             style={{transition:'transform 0.3s'}}
           />
           <button onClick={showNext} style={{position:'absolute',right:40,top:'50%',transform:'translateY(-50%)',fontSize:40,color:'#fff',background:'none',border:'none',cursor:'pointer',fontWeight:'bold'}}>&#8594;</button>
-          <div style={{position:'absolute',bottom:40,left:0,right:0,textAlign:'center',color:'#fff',fontSize:'1.2rem',fontWeight:'bold',textShadow:'0 2px 8px #000'}}>{images[lightboxIdx].name}</div>
+          <div style={{position:'absolute',bottom:40,left:0,right:0,textAlign:'center',color:'#fff',fontSize:'1.2rem',fontWeight:'bold',textShadow:'0 2px 8px #000'}}>
+            {images[lightboxIdx].name}
+            {images[lightboxIdx].location_tag && (
+              <div style={{fontSize:'1.05rem',fontWeight:'normal',marginTop:6,color:'#cbe',textShadow:'0 1px 4px #000'}}>
+                <span role="img" aria-label="location" style={{marginRight:3}}>📍</span>
+                <span>{images[lightboxIdx].location_tag}</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 }
-
 

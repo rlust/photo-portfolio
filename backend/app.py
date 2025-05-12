@@ -50,15 +50,130 @@ def handle_photos():
 
 from werkzeug.utils import secure_filename
 from google.cloud import storage
-import uuid
-import sqlite3
-import threading
-import datetime
-from sentence_transformers import SentenceTransformer
-import numpy as np
+
+# Print DB path on startup
+DB_PATH = os.environ.get('DB_PATH', 'metadata.db')
+print(f"[PHOTO-PORTFOLIO] Using DB file: {os.path.abspath(DB_PATH)}")
+logging.info(f"Using DB file: {os.path.abspath(DB_PATH)}")
+
+from PIL import Image
+import exifread
+from geopy.geocoders import Nominatim
+from google.cloud import vision
+import io
+
+# --- Location Tag Utilities ---
+def extract_gps_from_exif(image_path):
+    try:
+        with open(image_path, 'rb') as f:
+            tags = exifread.process_file(f, details=False)
+        gps_lat = tags.get('GPS GPSLatitude')
+        gps_lat_ref = tags.get('GPS GPSLatitudeRef')
+        gps_lon = tags.get('GPS GPSLongitude')
+        gps_lon_ref = tags.get('GPS GPSLongitudeRef')
+        if gps_lat and gps_lat_ref and gps_lon and gps_lon_ref:
+            def _dms_to_deg(dms, ref):
+                d = float(dms.values[0].num) / float(dms.values[0].den)
+                m = float(dms.values[1].num) / float(dms.values[1].den)
+                s = float(dms.values[2].num) / float(dms.values[2].den)
+                deg = d + m/60.0 + s/3600.0
+                if ref.values[0] in ['S', 'W']:
+                    deg = -deg
+                return deg
+            lat = _dms_to_deg(gps_lat, gps_lat_ref)
+            lon = _dms_to_deg(gps_lon, gps_lon_ref)
+            return lat, lon
+    except Exception:
+        pass
+    return None
+
+def reverse_geocode(lat, lon):
+    try:
+        geolocator = Nominatim(user_agent="photoportfolio")
+        location = geolocator.reverse((lat, lon), language='en', timeout=10)
+        return location.address if location else None
+    except Exception:
+        return None
+
+def google_vision_landmark(image_bytes):
+    try:
+        client = vision.ImageAnnotatorClient()
+        image = vision.Image(content=image_bytes)
+        response = client.landmark_detection(image=image)
+        landmarks = response.landmark_annotations
+        if landmarks:
+            return landmarks[0].description
+    except Exception:
+        pass
+    return None
+
+@app.route('/api/annotate-locations', methods=['POST'])
+def annotate_locations():
+    print(f"[PHOTO-PORTFOLIO] [annotate_locations] Using DB file: {os.path.abspath(DB_PATH)}")
+    logging.info(f"[annotate_locations] Using DB file: {os.path.abspath(DB_PATH)}")
+    """
+    Batch annotate photos in the DB with location_tag using EXIF GPS (if available),
+    else Google Vision landmark detection. Processes only a batch per call.
+    Query params:
+      - batch_size (default 10)
+      - offset (default 0)
+    Returns: progress info and how many annotated in this batch.
+    """
+    import tempfile, os, requests
+    batch_size = int(request.args.get('batch_size', 10))
+    offset = int(request.args.get('offset', 0))
+    updated = 0
+    with _db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        # Count total untagged
+        c.execute('SELECT COUNT(*) FROM photos WHERE location_tag IS NULL OR location_tag = "" OR location_tag = "null"')
+        total_untagged = c.fetchone()[0]
+        # Get batch
+        c.execute('SELECT id, url FROM photos WHERE location_tag IS NULL OR location_tag = "" OR location_tag = "null" LIMIT ? OFFSET ?', (batch_size, offset))
+        photos = c.fetchall()
+        for photo_id, url in photos:
+            try:
+                resp = requests.get(url, timeout=10)
+                if resp.status_code != 200:
+                    continue
+                with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                    tmp.write(resp.content)
+                    tmp_path = tmp.name
+                # 1. Try EXIF GPS
+                gps = extract_gps_from_exif(tmp_path)
+                tag = None
+                if gps:
+                    lat, lon = gps
+                    tag = reverse_geocode(lat, lon)
+                # 2. If no GPS, try Vision API
+                if not tag:
+                    tag = google_vision_landmark(resp.content)
+                # 3. If found, update DB
+                if tag:
+                    c.execute('UPDATE photos SET location_tag=? WHERE id=?', (tag, photo_id))
+                    updated += 1
+                os.remove(tmp_path)
+            except Exception:
+                continue
+        # Count remaining after this batch
+        c.execute('SELECT COUNT(*) FROM photos WHERE location_tag IS NULL OR location_tag = ""')
+        remaining = c.fetchone()[0]
+        conn.commit()
+        conn.close()
+    return jsonify({
+        'status': 'ok',
+        'batch_size': batch_size,
+        'offset': offset,
+        'updated_this_batch': updated,
+        'remaining_untagged': remaining,
+        'total_untagged': total_untagged
+    })
 
 @app.route('/api/reindex-gcs', methods=['POST'])
 def reindex_gcs():
+    print(f"[PHOTO-PORTFOLIO] [reindex_gcs] Using DB file: {os.path.abspath(DB_PATH)}")
+    logging.info(f"[reindex_gcs] Using DB file: {os.path.abspath(DB_PATH)}")
     try:
         client = get_gcs_client()
         bucket = client.bucket(GCS_BUCKET)
@@ -95,10 +210,11 @@ def reindex_gcs():
 GCS_BUCKET = 'photoportfolio-uploads'
 
 # SQLite setup
-DB_PATH = 'metadata.db'
 _db_lock = threading.Lock()
 
 def init_db():
+    print(f"[PHOTO-PORTFOLIO] [init_db] Using DB file: {os.path.abspath(DB_PATH)}")
+    logging.info(f"[init_db] Using DB file: {os.path.abspath(DB_PATH)}")
     with _db_lock:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -115,6 +231,11 @@ def init_db():
             gcs_path TEXT,
             uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''')
+        # Migration: add location_tag if not exists
+        c.execute("PRAGMA table_info(photos)")
+        columns = [row[1] for row in c.fetchall()]
+        if 'location_tag' not in columns:
+            c.execute('ALTER TABLE photos ADD COLUMN location_tag TEXT')
         conn.commit()
         conn.close()
 
@@ -151,6 +272,8 @@ def upload_to_gcs(file, folder):
     }
 
 def add_folder_to_db(folder):
+    print(f"[PHOTO-PORTFOLIO] [add_folder_to_db] Using DB file: {os.path.abspath(DB_PATH)}")
+    logging.info(f"[add_folder_to_db] Using DB file: {os.path.abspath(DB_PATH)}")
     with _db_lock:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -158,12 +281,19 @@ def add_folder_to_db(folder):
         conn.commit()
         conn.close()
 
-def add_photo_to_db(folder, name, url, mimetype, gcs_path):
+def add_photo_to_db(folder, name, url, mimetype, gcs_path, location_tag=None):
+    print(f"[PHOTO-PORTFOLIO] [add_photo_to_db] Using DB file: {os.path.abspath(DB_PATH)}")
+    logging.info(f"[add_photo_to_db] Using DB file: {os.path.abspath(DB_PATH)}")
     with _db_lock:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute('''INSERT INTO photos (folder, name, url, mimetype, gcs_path) VALUES (?, ?, ?, ?, ?)''',
-                  (folder, name, url, mimetype, gcs_path))
+        # Insert with location_tag if provided
+        if location_tag is not None:
+            c.execute('''INSERT INTO photos (folder, name, url, mimetype, gcs_path, location_tag) VALUES (?, ?, ?, ?, ?, ?)''',
+                      (folder, name, url, mimetype, gcs_path, location_tag))
+        else:
+            c.execute('''INSERT INTO photos (folder, name, url, mimetype, gcs_path) VALUES (?, ?, ?, ?, ?)''',
+                      (folder, name, url, mimetype, gcs_path))
         conn.commit()
         conn.close()
 
@@ -180,12 +310,17 @@ def get_photos_by_folder():
     with _db_lock:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute('SELECT folder, name, url, mimetype FROM photos')
+        c.execute('SELECT folder, name, url, mimetype, location_tag FROM photos')
         photos = c.fetchall()
         conn.close()
         folder_dict = {}
-        for folder, name, url, mimetype in photos:
-            folder_dict.setdefault(folder, []).append({'name': name, 'url': url, 'mimetype': mimetype})
+        for folder, name, url, mimetype, location_tag in photos:
+            folder_dict.setdefault(folder, []).append({
+                'name': name,
+                'url': url,
+                'mimetype': mimetype,
+                'location_tag': location_tag
+            })
         return folder_dict
 
 def delete_photo_from_db(folder, name):

@@ -10,4 +10,7 @@ https://photoportfolio-app.windsurf.build/
 website url
 https://photo-frontend-839093975626.us-central1.run.app/
 
+Photo list
+
+curl -X POST https://photoportfolio-backend-839093975626.us-central1.run.app/api/reindex-gcs
 
