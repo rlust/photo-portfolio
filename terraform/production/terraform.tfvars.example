@@ -1,0 +1,29 @@
+# Production environment configuration
+
+# Required Variables
+project_id       = "your-project-id"
+domain_name      = "example.com"  # Your production domain name
+
+# Database Configuration
+database_name    = "photoportfolio"
+database_user    = "rlust"
+database_password = "your-secure-db-password"
+
+# Security
+secret_key       = "your-secret-key"
+jwt_secret_key   = "your-jwt-secret-key"
+
+# Network
+region          = "us-central1"
+zone           = "us-central1-a"
+subnet_cidr    = "10.10.0.0/20"
+
+# Allowed SSH IPs (restrict to your office/VPN IPs)
+allowed_ssh_ips = ["123.45.67.89/32"]
+
+# Resource Sizes
+database_tier   = "db-g1-small"
+database_disk_size = 50  # GB
+
+# Image Tag (usually set by CI/CD)
+image_tag       = "latest"
