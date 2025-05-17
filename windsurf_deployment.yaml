@@ -1,0 +1,28 @@
+# Windsurf Deploys Configuration (Beta)
+# This is an auto-generated file used to store your app deployment configuration. Do not modify.
+# The ID of the project (different from project name) on the provider's system. This is populated as a way to update existing deployments.
+project_id: 9aab9d80-6042-4ed1-8084-418b9372de5e
+# The framework of the web application (examples: nextjs, react, vue, etc.)
+framework: fastapi
+# The root directory of the backend (relative to the project root)
+root: backend
+# The command to start the application
+command: uvicorn app.main:app --host 0.0.0.0 --port 8080
+# The port the application listens on
+port: 8080
+# Environment variables to be set in the production environment
+env_vars:
+  - name: ENVIRONMENT
+    value: production
+  - name: DEBUG
+    value: 'False'
+# Build configuration
+build:
+  # The Dockerfile to use for building the image (relative to the root)
+  dockerfile: Dockerfile
+  # The directory containing the Dockerfile (relative to the project root)
+  context: backend
+  # The target stage to build
+  target: production
+# Health check configuration
+health_check_path: /api/health

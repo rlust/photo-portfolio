@@ -1,0 +1,159 @@
+# Git
+.git
+.gitignore
+.gitattributes
+.github/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.python-version
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Build and distribution
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Local development
+instance/
+.webassets-cache
+.cache/
+
+# Database
+*.db
+*.sqlite3
+*.sql
+
+# Gunicorn
+*.pid
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+cloud-sql-proxy
+credentials.json
+*.pem
+*.p12
+*.key
+*.crt
+*.cert
+
+# Large files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.webp
+*.ico
+*.pdf
+*.zip
+*.gz
+*.tgz
+*.tar
+*.7z
+
+# Test and coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.coverage.*
+
+# Local development
+.cache/
+.venv/
+
+# Ignore everything in the root except specific files
+/*
+
+# Allow these files and directories
+!Dockerfile
+!app.py
+!search.py
+!requirements.txt
+!*.py
+!*.md
+!*.toml
+!*.yaml
+!*.yml
+!*.json
+
+# Allow subdirectories
+!**/
+
+# But ignore these subdirectories
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+
+# Allow specific files in subdirectories
+!**/*.py
+!**/*.txt
+!**/*.md
+!**/*.json
+!**/*.yaml
+!**/*.yml
+
+# Allow specific directories
+!migrations/
+!templates/
+!static/
+
+# Ignore large directories
+**/node_modules/
+**/bower_components/
+**/jspm_packages/
+
+# Ignore version control
+.git/
+.gitignore
+.github/
+.gitattributes
+.gitmodules
+
+# Ignore editor files
+.idea/
+.vscode/
+*.sublime-*
+*.sublime-workspace
+*.sublime-project
+*.code-workspace

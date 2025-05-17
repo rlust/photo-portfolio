@@ -1,0 +1,19 @@
+# Exclude backend and other unnecessary files from deployment
+backend/
+venv/
+*.log
+cloud-sql-proxy
+node_modules/
+build/
+dist/
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.egg-info/
+.vscode/
+.DS_Store
+.netlify
