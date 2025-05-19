@@ -1,0 +1,31 @@
+# Test dependencies
+pytest>=7.0.0,<8.0.0
+pytest-cov>=4.0.0,<5.0.0
+pytest-mock>=3.0.0,<4.0.0
+pytest-asyncio>=0.20.0,<1.0.0
+pytest-xdist>=3.0.0,<4.0.0
+
+# Code quality
+black>=23.0.0,<25.0.0
+isort>=5.0.0,<6.0.0
+flake8>=6.0.0,<8.0.0
+mypy>=1.0.0,<2.0.0
+
+# Test database
+pytest-postgresql>=4.0.0,<6.0.0
+pytest-docker>=2.0.0,<3.0.0
+
+# Mocking
+responses>=0.23.0,<0.25.0
+httpx>=0.25.0,<0.27.0
+
+# Debugging
+ipdb>=0.13.0,<0.14.0
+
+# Code coverage
+coverage>=7.0.0,<8.0.0
+
+# Type stubs
+types-requests>=2.31.0
+types-python-dateutil>=2.8.0
+types-PyYAML>=6.0.0

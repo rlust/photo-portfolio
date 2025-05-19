@@ -1,0 +1,95 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: photo-portfolio-459415
+  REGION: us-central1
+  SERVICE_NAME: photoportfolio-backend
+  GCS_BUCKET: photoportfolio-uploads
+  DB_INSTANCE: photoportfolio-db
+  DB_NAME: photoportfolio
+  DB_USER: rlust
+  DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+  DB_REGION: us-central1
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.6.1
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+        installer-parallel: true
+    
+    - name: Load cached venv
+      id: cached-poetry-dependencies
+      uses: actions/cache@v3
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+    
+    - name: Install dependencies
+      run: |
+        poetry install --with dev --no-interaction --no-ansi
+    
+    - name: Run tests
+      run: |
+        poetry run pytest tests/ -v --cov=app --cov-report=xml
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: false
+
+  deploy:
+    name: Deploy to Production
+    needs: test
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
+      with:
+        project_id: ${{ env.PROJECT_ID }}
+        service_account_key: ${{ secrets.GCP_SA_KEY }}
+        export_default_credentials: true
+    
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud config set project $PROJECT_ID
+        gcloud config set run/region $REGION
+        
+        # Build and deploy the container
+        gcloud builds submit --config backend/cloudbuild.yaml .
+        
+        # Get the service URL
+        SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --platform managed --region $REGION --format 'value(status.url)')
+        echo "Deployed service URL: $SERVICE_URL"
+        
+        # Trigger reindexing
+        if [ -n "$SERVICE_URL" ]; then
+          echo "Triggering reindexing..."
+          curl -X POST "${SERVICE_URL}/api/reindex-gcs"
+        fi

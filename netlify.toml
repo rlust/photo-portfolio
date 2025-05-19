@@ -1,0 +1,8 @@
+[build]
+  publish = "frontend/build"
+  command = "npm run build --prefix frontend"
+
+[[redirects]]
+  from = "/api/*"
+  to = "http://localhost:8080/api/:splat"
+  status = 200

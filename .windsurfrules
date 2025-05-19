@@ -1,0 +1,19 @@
+always complete the task
+always use the latest version of the language
+apply needed edits and execute them without asking for permission
+keep memory of previous tasks
+always show me the status of a deploy and keep me updated
+Code Structure & Modularity
+
+Never create a file longer than 500 lines of code. If a file approaches this limit, refactor by splitting it into modules or helper files.
+Organize code into clearly separated modules, grouped by feature or responsibility. For agents this looks like:
+agent.py - Main agent definition and execution logic
+tools.py - Tool functions used by the agent
+prompts.py - System prompts
+Use clear, consistent imports (prefer relative imports within packages).
+
+Context7 MCP
+
+Always use the Context7 MCP server to reference documentation for libraries like Google Cloud or other needed libraries.
+For the tokens, always use 5000 tokens for your search.
+Only search three times maximum for any specific piece of documentation. If you don't get what you need, use the Brave MCP server to perform a wider search.

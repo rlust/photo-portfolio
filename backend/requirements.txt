@@ -1,0 +1,136 @@
+# ===================================
+# Core Framework
+# ===================================
+fastapi>=0.95.0,<1.0.0
+uvicorn[standard]>=0.21.0,<1.0.0
+starlette>=0.26.0,<0.29.0
+python-multipart==0.0.9
+pydantic==2.7.1
+pydantic-settings==2.7.1
+pyyaml==6.0.1
+python-dotenv==1.0.1
+
+# ===================================
+# Database
+# ===================================
+sqlalchemy==2.0.29
+alembic==1.13.1
+psycopg2-binary==2.9.9
+SQLAlchemy-Utils==0.41.1
+pg8000==1.30.5
+sqlalchemy[asyncio]==2.0.29
+
+# ===================================
+# Google Cloud
+# ===================================
+google-cloud-storage==2.14.0
+google-cloud-secret-manager==2.19.0
+google-auth==2.28.2
+google-api-core==2.18.0
+google-cloud-core==2.4.1
+google-resumable-media==2.7.0
+cachetools==5.3.3
+rsa==4.9
+googleapis-common-protos==1.63.0
+protobuf==4.25.3
+proto-plus==1.23.0
+psycopg2-binary==2.9.9
+
+# ===================================
+# Authentication & Security
+# ===================================
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.9
+itsdangerous==2.1.2
+
+# ===================================
+# Testing
+# ===================================
+pytest==7.4.4
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-env==0.8.2
+pytest-httpx==0.25.0
+pytest-mock==3.12.0
+pytest-rerunfailures==14.0
+pytest-timeout==2.2.0
+pytest-xdist==3.5.0
+responses==0.24.1
+freezegun==1.4.0
+httpx>=0.25.0,<0.26.0
+
+# ===================================
+# Utilities
+# ===================================
+python-magic==0.4.27
+requests==2.31.0
+python-json-logger==2.0.7
+python-dateutil==2.9.0.post0
+tqdm==4.66.2
+loguru==0.7.2
+
+# ===================================
+# Development & Code Quality
+# ===================================
+black==24.3.0
+mypy-extensions==1.0.0
+packaging==24.0
+pathspec==0.12.1
+platformdirs==4.2.0
+flake8==7.0.0
+isort==5.13.2
+mypy==1.8.0
+pre-commit==3.6.1
+
+# ===================================
+# Machine Learning
+# ===================================
+sentence-transformers==2.6.1
+transformers==4.38.2
+torch==2.2.1
+tokenizers==0.15.2
+numpy==1.26.4
+nltk==3.8.1
+safetensors==0.4.2
+huggingface-hub==0.22.2
+
+# ===================================
+# Runtime Dependencies
+# ===================================
+# Required by sentence-transformers
+tqdm==4.66.2
+scikit-learn==1.4.1.post1
+scipy>=1.5.4
+sentencepiece>=0.1.91
+
+# ===================================
+# Optional Dependencies
+# ===================================
+# For PDF processing (uncomment if needed)
+# PyMuPDF==1.23.8
+# pdf2image==1.17.0
+# pytesseract==0.3.10
+
+# For image processing (uncomment if needed)
+# Pillow>=10.0.0
+# opencv-python-headless>=4.5.0
+
+# For async database access (uncomment if needed)
+# asyncpg>=0.27.0
+# databases[postgresql]>=0.6.0
+scikit-learn==1.4.1.post1
+tqdm==4.66.2
+huggingface-hub==0.22.2
+
+# ===================================
+# Image Processing
+# ===================================
+Pillow>=10.3.0,<11.0.0
+
+# ===================================
+# Documentation
+# ===================================
+sphinx==7.2.6
+sphinx-rtd-theme==2.0.0
+sphinx-autodoc-typehints==1.25.3

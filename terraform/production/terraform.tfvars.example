@@ -1,0 +1,28 @@
+# Project Configuration
+project_id     = "your-gcp-project-id"
+project_number = "your-gcp-project-number"
+environment    = "production"
+
+# Region and Zone
+region = "us-central1"
+zone   = "us-central1-a"
+
+# Domain Configuration (optional)
+domain_name = "yourdomain.com"
+
+# Database Configuration
+database_name = "photo_portfolio"
+database_user = "app_user"
+database_password = "your-secure-db-password"
+database_tier = "db-f1-micro"
+database_availability_type = "ZONAL"
+database_disk_size = 10
+
+# Application Configuration
+image_tag = "latest"
+cpu      = "1000m"
+memory   = "512Mi"
+
+# Secrets (these should be managed securely in production)
+secret_key     = "your-secret-key"
+jwt_secret_key = "your-jwt-secret-key"

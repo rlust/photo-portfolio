@@ -1,0 +1,90 @@
+# EditorConfig is awesome: https://EditorConfig.org
+
+# top-most EditorConfig file
+root = true
+
+# Unix-style newlines with a newline ending every file
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# Python files
+[*.py]
+indent_size = 4
+max_line_length = 100
+
+# YAML files
+[*.{yaml,yml}]
+indent_size = 2
+
+# JSON files
+[*.json]
+indent_size = 2
+
+# Markdown files
+[*.md]
+trim_trailing_whitespace = false
+
+# Makefile
+[Makefile]
+indent_style = tab
+
+# Batch files
+[*.{cmd,bat}]
+end_of_line = crlf
+
+# Shell scripts
+[*.sh]
+indent_style = tab
+
+# Docker files
+[Dockerfile*]
+indent_size = 4
+
+# HTML files
+[*.{html,htm}]
+indent_size = 2
+
+# CSS, SCSS, and Less files
+[*.{css,scss,less}]
+indent_size = 2
+
+# JavaScript, TypeScript, and related files
+[*.{js,jsx,ts,tsx}]
+indent_size = 2
+
+# Java files
+[*.java]
+indent_size = 4
+
+# C# files
+[*.cs]
+indent_size = 4
+
+# XML files
+[*.{xml,xsd,xslt}]
+indent_size = 2
+
+# SQL files
+[*.sql]
+indent_size = 2
+
+# Configuration files
+[.{babel,eslint,prettier}rc]
+indent_size = 2
+
+# Git configuration
+[.git{attributes,config,ignore,modules}]
+indent_size = 2
+
+# Editor configuration
+[.editorconfig]
+indent_size = 2
+
+# GitHub workflow files
+[.github/workflows/*.yaml]
+indent_size = 2

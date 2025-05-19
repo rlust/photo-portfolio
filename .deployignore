@@ -1,0 +1,63 @@
+# Ignore Python virtual environments
+# Aggressively ignore all unnecessary files for deployment
+
+# Python virtual environments (anywhere)
+venv/
+*/venv/
+**/venv/
+backend/venv/
+
+# Node modules (anywhere)
+node_modules/
+*/node_modules/
+**/node_modules/
+frontend/node_modules/
+
+# Build and dist artifacts
+build/
+*/build/
+**/build/
+dist/
+*/dist/
+**/dist/
+frontend/build/
+
+# Git and version control
+.git/
+.github/
+.gitignore
+
+# IDE/editor configs
+.vscode/
+.idea/
+
+# Python cache and bytecode
+__pycache__/
+*/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Temp, logs, test
+*.log
+*.tmp
+tmp/
+*/tmp/
+**/tmp/
+test/
+*/test/
+**/test/
+
+# Mac/Windows system files
+.DS_Store
+Thumbs.db
+
+# Service account keys (never deploy)
+backend/*.json
+
+# SQLite DB (legacy)
+backend/metadata.db
+
+# Cloud SQL proxy binary
+backend/cloud-sql-proxy

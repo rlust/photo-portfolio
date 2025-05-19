@@ -1,0 +1,36 @@
+# Test dependencies
+pytest>=7.0.0
+pytest-cov>=3.0.0
+pytest-mock>=3.10.0
+pytest-asyncio>=0.20.0
+pytest-env>=0.6.2
+pytest-xdist>=2.5.0
+pytest-rerunfailures>=10.2
+pytest-timeout>=2.1.0
+
+# Test HTTP client
+httpx>=0.23.0
+
+# Code quality
+black>=22.3.0
+isort>=5.10.1
+flake8>=4.0.0
+mypy>=0.910
+
+# Test database
+sqlalchemy-utils>=0.38.0
+
+# Mocking
+responses>=0.20.0
+freezegun>=1.1.0
+
+# Code coverage
+coverage>=6.0.0
+
+# Security
+safety>=1.10.3
+bandit>=1.7.0
+
+# Documentation
+sphinx>=4.0.0
+sphinx-rtd-theme>=1.0.0
