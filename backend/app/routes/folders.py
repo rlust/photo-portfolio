@@ -6,15 +6,57 @@ from ..database import get_db
 
 router = APIRouter(prefix="/api/folders", tags=["folders"])
 
-@router.get("/", response_model=List[schemas.Folder])
+@router.get("/")
 def list_folders(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db)
 ):
-    """List all folders."""
-    folders = db.query(models.Folder).offset(skip).limit(limit).all()
-    return folders
+    """List all folders with their photos in a format compatible with the frontend.
+    
+    Returns a dictionary where keys are folder names and values are arrays of photo objects.
+    Example: {"Nature": [{name: "tree.jpg", url: "https://..."}, ...], ...}
+    """
+    from sqlalchemy.orm import joinedload
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Get all folders with their related photos
+        folders_with_photos = db.query(models.Folder)\
+            .options(joinedload(models.Folder.photos))\
+            .offset(skip).limit(limit).all()
+        
+        # Structure the response as expected by the frontend
+        result = {}
+        for folder in folders_with_photos:
+            # Skip folders without names
+            if not folder.name:
+                continue
+                
+            # Create an entry for each folder name
+            folder_photos = []
+            for photo in folder.photos:
+                folder_photos.append({
+                    "name": photo.title or photo.filename or f"Photo {photo.id}",
+                    "url": photo.url,
+                    "id": photo.id,
+                    "mimetype": photo.mimetype,
+                    "uploaded_at": photo.uploaded_at.isoformat() if photo.uploaded_at else None
+                })
+            
+            # Add folder data to result
+            result[folder.name] = folder_photos
+            
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching folders: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching folders: {str(e)}"
+        )
 
 @router.post("/", response_model=schemas.Folder, status_code=status.HTTP_201_CREATED)
 def create_folder(

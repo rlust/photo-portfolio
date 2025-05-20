@@ -7,8 +7,8 @@ import LightboxModal from './components/LightboxModal';
 import LargeBatchUpload from './components/LargeBatchUpload';
 
 // --- AI-Powered File Search ---
-const SEMANTIC_SEARCH_API = 'https://photoportfolio-backend-839093975626.us-central1.run.app/api/photos/semantic-search';
-// const WEB_SEARCH_API = 'https://photoportfolio-backend-839093975626.us-central1.run.app/api/web-search'; // (legacy)
+const SEMANTIC_SEARCH_API = 'https://photoportfolio-backend-er4l5fctxq-uc.a.run.app/api/photos/semantic-search/';
+// const WEB_SEARCH_API = 'https://photoportfolio-backend-er4l5fctxq-uc.a.run.app/api/web-search'; // (legacy)
 
 
 function App() {
@@ -38,7 +38,7 @@ function App() {
 
   // Fetch photos (removed, no longer needed)
   // useEffect(() => {
-  //   fetch('https://photoportfolio-backend-839093975626.us-central1.run.app/api/photos')
+  //   fetch('https://photoportfolio-backend-er4l5fctxq-uc.a.run.app/api/photos')
   //     .then(res => {
   //       if (!res.ok) throw new Error('Network response was not ok');
   //       return res.json();
@@ -71,7 +71,7 @@ function App() {
   // Fetch folders and their images
   const fetchFolders = () => {
     setLoadingFolders(true);
-    fetch('https://photoportfolio-backend-839093975626.us-central1.run.app/api/folders')
+    fetch('https://photoportfolio-backend-er4l5fctxq-uc.a.run.app/api/folders/')
       .then(res => {
         if (!res.ok) throw new Error('Network response was not ok');
         return res.json();
@@ -141,7 +141,7 @@ function App() {
         const baseUploadedCount = uploadedCount;
         await new Promise((resolve, reject) => {
           const xhr = new window.XMLHttpRequest();
-          xhr.open('POST', 'https://photoportfolio-backend-839093975626.us-central1.run.app/api/upload');
+          xhr.open('POST', 'https://photoportfolio-backend-er4l5fctxq-uc.a.run.app/api/upload/');
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
               // Progress: percent of all batches
@@ -192,7 +192,7 @@ function App() {
     if (!window.confirm(`Delete image "${name}" from folder "${folder}"?`)) return;
     try {
       await fetch(
-        `https://photoportfolio-backend-839093975626.us-central1.run.app/api/folder/${encodeURIComponent(folder)}/${encodeURIComponent(name)}`,
+        `https://photoportfolio-backend-er4l5fctxq-uc.a.run.app/api/folder/${encodeURIComponent(folder)}/${encodeURIComponent(name)}`,
         { method: 'DELETE' }
       );
       fetchFolders();
@@ -206,7 +206,7 @@ function App() {
     if (!window.confirm(`Delete folder "${folder}" and ALL images in it? This cannot be undone.`)) return;
     try {
       await fetch(
-        `https://photoportfolio-backend-839093975626.us-central1.run.app/api/folder/${encodeURIComponent(folder)}`,
+        `https://photoportfolio-backend-er4l5fctxq-uc.a.run.app/api/folder/${encodeURIComponent(folder)}`,
         { method: 'DELETE' }
       );
       fetchFolders();

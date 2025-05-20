@@ -26,13 +26,13 @@ This document outlines the steps required to deploy the Photo Portfolio applicat
 - [x] Initial test data populated
 - [ ] Enable private IP (recommended)
 - [ ] Set up automated backups
-- [ ] Implement database migration system
+- [x] Implement database migration system (see docs/DATABASE_UPDATES.md)
 
 ### 2. Cloud Storage
-- [x] Storage bucket configured (`photoportfolio-uploads` in cloudbuild.yaml)
-- [ ] Configure CORS policy
-- [ ] Set up lifecycle rules
-- [ ] Configure IAM permissions
+- [x] Storage bucket configured (`photo-portfolio-rlust2025` in GCP)
+- [x] Configure CORS policy (verified, includes frontend and backend origins)
+- [x] Set up lifecycle rules (verified, includes transition to NEARLINE and COLDLINE storage classes)
+- [x] Configure IAM permissions (Service account has proper permissions to access GCS)
 
 ### 3. Secret Manager
 - [x] Store database credentials (moved from cloudbuild.yaml to Secret Manager)
@@ -114,16 +114,16 @@ This document outlines the steps required to deploy the Photo Portfolio applicat
 - [x] Implement proper error handling for Secret Manager
 - [x] Fix database session handling in FastAPI
 - [x] Populate initial database with test data
-- [ ] Implement automated schema migrations
-- [ ] Set up GCS storage integration for photos
+- [x] Implement automated schema migrations (using Alembic)
+- [x] Set up GCS storage integration for photos (implemented with workload identity)
 - [ ] Configure domain and SSL
 - [ ] Set up monitoring and logging
 
 ### 2. Post-Deployment
-- [ ] Verify all services are running
-- [ ] Test file uploads
-- [ ] Test database connectivity
-- [ ] Verify API endpoints
+- [x] Verify all services are running (health endpoint confirmed)
+- [x] Test file uploads (enhanced GCS integration)
+- [x] Test database connectivity (fixed Cloud SQL connection)
+- [x] Verify API endpoints (photos endpoint tested and confirmed working)
 
 ## Monitoring and Maintenance
 - [ ] Set up Cloud Monitoring
