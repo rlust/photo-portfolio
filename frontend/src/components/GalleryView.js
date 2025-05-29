@@ -1,6 +1,24 @@
 import React, { useState, useEffect } from "react";
 
-export default function GalleryView({ folders }) {
+// Helper function to fix image URLs - this ensures both GCS and local storage URLs work
+const fixImageUrl = (url) => {
+  if (!url) return '/notfound.png';
+  
+  // If it's a local path without domain, add the backend URL
+  if (url.startsWith('/static/')) {
+    return `https://photoportfolio-backend-er4l5fctxq-uc.a.run.app${url}`;
+  }
+  
+  // If it has local: prefix, fix it
+  if (url.startsWith('local:')) {
+    const path = url.replace('local:', '');
+    return `https://photoportfolio-backend-er4l5fctxq-uc.a.run.app${path}`;
+  }
+  
+  return url;
+};
+
+export default function GalleryView({ folders, onDeleteImage }) {
   // All hooks must be at the top
   const [selectedFolder, setSelectedFolder] = useState(null);
 
@@ -87,18 +105,50 @@ export default function GalleryView({ folders }) {
         <div className="gallery-grid">
           {images.map((img,idx) => (
             <div className="gallery-card" key={img.url+idx}>
-              {img.url ? (
-                <img
-                  src={img.url}
-                  alt={img.name || 'Image'}
-                  title={img.name || ''}
-                  className="gallery-img"
-                  onClick={() => openLightbox(idx)}
-                  onError={e => {e.target.onerror=null; e.target.src='/notfound.png';}}
-                />
-              ) : (
-                <div style={{width:160,height:160,background:'#eee',display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'6px',border:'1px solid #ddd'}}>No image</div>
-              )}
+              <div style={{ position: 'relative' }}>
+                {img.url ? (
+                  <>
+                    <img
+                      src={fixImageUrl(img.url)}
+                      alt={img.name || 'Image'}
+                      title={img.name || ''}
+                      className="gallery-img"
+                      onClick={() => openLightbox(idx)}
+                      onError={e => {e.target.onerror=null; e.target.src='/notfound.png';}}
+                    />
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onDeleteImage && window.confirm(`Delete image "${img.name || 'Untitled'}"?`)) {
+                          onDeleteImage(selectedFolder, img);
+                        }
+                      }}
+                      style={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        background: 'rgba(255, 0, 0, 0.7)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '50%',
+                        width: '30px',
+                        height: '30px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '16px',
+                        cursor: 'pointer',
+                        fontWeight: 'bold'
+                      }}
+                      title="Delete image"
+                    >
+                      ×
+                    </button>
+                  </>
+                ) : (
+                  <div style={{width:160,height:160,background:'#eee',display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'6px',border:'1px solid #ddd'}}>No image</div>
+                )}
+              </div>
               <div className="gallery-info">{img.name || 'Untitled'}</div>
               <div className="gallery-folder">{img.folder || selectedFolder}</div>
               {img.location_tag && img.location_tag.trim() !== ""

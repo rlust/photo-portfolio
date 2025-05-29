@@ -49,6 +49,10 @@ logs/
 Thumbs.db
 
 # Google Cloud credentials
+*.json
+backend/secrets/
+backend/db_credentials.txt
+backend/db-credentials.json
 *credentials*.json
 *secret*.json
 backend/secrets/

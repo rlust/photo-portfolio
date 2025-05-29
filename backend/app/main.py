@@ -1,39 +1,150 @@
 import sys
+import os
+import logging
+import datetime
+import json
+import time
+import uuid
+from pathlib import Path
+
+# Configure logging before any imports
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+logger.info("Starting application initialization process")
+
+# Create the FastAPI app first to ensure it can respond to health checks
+from fastapi import FastAPI, status, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+app = FastAPI(title="Photo Portfolio API", version="1.0.0")
+
+# Basic routes that must always work
+@app.get("/")
+def root():
+    return {"message": "Photo Portfolio API is running"}
+
+@app.get("/api/health")
+def health_check():
+    """Basic health check endpoint for Cloud Run"""
+    health_data = {
+        "status": "healthy",
+        "timestamp": datetime.datetime.now().isoformat(),
+        "version": "1.0.0",
+        "environment": os.environ.get("ENVIRONMENT", "production"),
+        "services": {
+            "api": "up"
+        }
+    }
+    return health_data
+
+# Add CORS middleware with proper configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Create the static directory
+os.makedirs("static", exist_ok=True)
+
+# Flag for tracking imported features
+HAS_DB = False
+HAS_GCS = False
+gcs_client = None
+GCSClient = None
+
+# Try to load additional features but don't fail the app if they're not available
 try:
-    import os
-    import logging
+    # Import advanced dependencies that might not be available in all environments
     import sqlalchemy
-    import datetime
-    from fastapi import FastAPI, Depends, status, HTTPException, BackgroundTasks, UploadFile, File, Form
-    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi import Depends, HTTPException, BackgroundTasks, UploadFile, File, Form
     from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import FileResponse
     from sqlalchemy.orm import Session
     from typing import List, Optional, Dict, Any
-
-    from .config import Base, get_db, settings
-    engine = None
-    from .database import init_db, reset_db
-    from . import models, schemas
-
-    # Configure logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
-
-    # Try to import routes (they may fail if GCS dependencies are not available)
+    
+    # Try to import database modules but handle potential failures gracefully
+    try:
+        from .config import Base, get_db, settings, engine
+        from .database import init_db, reset_db
+        from . import models, schemas
+        logger.info("Successfully imported database modules")
+        HAS_DB = True
+    except Exception as db_error:
+        logger.warning(f"Database modules not available: {db_error}")
+        
+    # Try to import GCS modules but handle potential failures gracefully
+    try:
+        from .utils.gcs import GCSClient as GCSClientClass
+        GCSClient = GCSClientClass
+        logger.info("Successfully imported GCS client class")
+        HAS_GCS = True
+    except Exception as gcs_error:
+        logger.warning(f"GCS modules not available: {gcs_error}")
+        
+    # Try to import the routers but handle potential failures gracefully
     ROUTERS = {}
     try:
-        from .routes import photos, folders
-        from .utils.gcs import gcs_client
-        ROUTERS['photos'] = photos.router
+        from .routes import folders
         ROUTERS['folders'] = folders.router
-    except ImportError as e:
-        logger.warning(f"Failed to import some routes: {e}")
-        gcs_client = None
+        logger.info("Successfully imported folders router")
+    except Exception as folder_error:
+        logger.warning(f"Folders router not available: {folder_error}")
+        
+    # Only try to import photos router if GCS is available
+    if HAS_GCS:
+        try:
+            from .routes import photos
+            ROUTERS['photos'] = photos.router
+            logger.info("Successfully imported photos router")
+        except Exception as photos_error:
+            logger.warning(f"Photos router not available: {photos_error}")
+            
 except Exception as e:
-    print("[FATAL_IMPORT_ERROR]", e, file=sys.stderr)
-    import traceback
-    traceback.print_exc(file=sys.stderr)
+    logger.warning(f"Non-critical import error: {e}")
+    logger.info("Application will start with limited functionality")
+except ImportError as e:
+    logger.critical(f"Critical import error: {e}")
     raise
+
+    # Import dependencies with improved error handling
+    ROUTERS = {}
+    gcs_client = None
+    GCSClient = None  # Will be set later if import succeeds
+
+    # First import the routes that don't depend on GCS
+    try:
+        from .routes import folders
+        ROUTERS['folders'] = folders.router
+        logger.info("Successfully imported folders router")
+    except Exception as e:
+        logger.warning(f"Failed to import folders router: {e}")
+        
+    # Then try to import GCS class - but don't initialize yet
+    try:
+        from .utils.gcs import GCSClient as GCSClientClass
+        GCSClient = GCSClientClass  # Store the class for lazy initialization
+        logger.info("Successfully imported GCS client class - will initialize lazily")
+        
+        # Only import photos router if GCS client class is available
+        try:
+            from .routes import photos
+            ROUTERS['photos'] = photos.router
+            logger.info("Successfully imported photos router")
+        except Exception as photos_error:
+            logger.warning(f"Failed to import photos router: {photos_error}")
+            
+    except ImportError as e:
+        logger.warning(f"GCS dependencies not available: {e}")
+        # Continue without GCS client
+    except Exception as e:
+        logger.error(f"Error during GCS setup: {e}")
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        # Continue without GCS client
 
 
 # Initialize FastAPI app
@@ -44,6 +155,9 @@ app = FastAPI(
     # Disable automatic redirect when trailing slash is missing
     redirect_slashes=False
 )
+
+# Mount static files directory
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/", tags=["health"])
 async def root():
@@ -64,17 +178,63 @@ async def root():
         }
     }
 
-# Configure CORS
+# Add CORS middleware with proper configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["Content-Length", "Content-Range"],
+    max_age=600  # Cache preflight requests for 10 minutes
 )
 
-# Mount static files
+# Mount static files directory for uploads and serving
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Add a route to get static file URLs that work with our deployment
+@app.get("/api/static-url/{path:path}", tags=["utils"])
+async def get_static_url(path: str):
+    """Convert a local static path to a publicly accessible URL"""
+    # For Cloud Run deployments, this ensures static files are accessible
+    if path.startswith("/static/"):
+        path = path[8:]  # Remove leading /static/
+    elif path.startswith("static/"):
+        path = path[7:]  # Remove leading static/
+        
+    # Return the full URL to the static resource
+    service_url = os.environ.get("SERVICE_URL", "https://photoportfolio-backend-er4l5fctxq-uc.a.run.app")
+    return {"url": f"{service_url}/static/{path}"}
+
+# Add a reindex endpoint to help with showing local images in gallery
+@app.get("/api/reindex-gcs", tags=["utils"])
+async def reindex_gcs(db: Session = Depends(get_db)):
+    """Reindex all photos in the database, updating their URLs.
+    This is useful when switching between GCS and local storage."""
+    try:
+        # Get all photos
+        photos = db.query(models.Photo).all()
+        updated = 0
+        
+        for photo in photos:
+            # Check if it's a local file
+            if photo.gcs_path and photo.gcs_path.startswith("local:"):
+                # Extract the path and update the URL to use our backend service
+                local_path = photo.gcs_path.replace("local:", "")
+                service_url = os.environ.get("SERVICE_URL", "https://photoportfolio-backend-er4l5fctxq-uc.a.run.app")
+                photo.url = f"{service_url}/static{local_path}"
+                updated += 1
+                
+        # Commit changes
+        db.commit()
+        
+        return {"message": f"Reindexed {updated} photos", "total": len(photos)}            
+    except Exception as e:
+        logger.error(f"Error reindexing GCS: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error reindexing: {str(e)}"
+        )
 
 # Database initialization with retry logic
 @app.on_event("startup")
@@ -315,7 +475,7 @@ async def reindex_gcs(background_tasks: BackgroundTasks):
         )
 
 # Batch Upload Endpoint
-@app.post("/api/upload")
+@app.post("/api/upload/")
 async def batch_upload(
     background_tasks: BackgroundTasks,
     folder: str = Form(...),
@@ -323,120 +483,203 @@ async def batch_upload(
     db: Session = Depends(get_db)
 ):
     """Upload multiple images to a folder"""
-    logger.info(f"Batch upload request received for folder '{folder}' with {len(images)} images")
+    import mimetypes
+    import uuid
+    import pathlib
+    import time
     
-    if not gcs_client or not gcs_client.available:
-        logger.error("GCS client is not available for batch upload")
+    logger.info(f"Batch upload request received for folder '{folder}' with {len(images)} images")
+    start_time = time.time()
+    
+    # Create folder in database if it doesn't exist
+    try:
+        # First try to get the folder by name
+        db_folder = db.query(models.Folder).filter(models.Folder.name == folder).first()
+        
+        if not db_folder:
+            logger.info(f"Creating new folder in database: {folder}")
+            # Create a new folder with the default admin user (ID 1)
+            new_folder = models.Folder(
+                name=folder,
+                description=f"Uploaded photos for {folder}",
+                is_public=True,
+                owner_id=1  # Using default admin user ID
+            )
+            db.add(new_folder)
+            db.flush()  # Get the ID without committing transaction
+            db_folder = new_folder
+    except Exception as e:
+        logger.error(f"Error creating/getting folder: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Storage service is not available"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not create folder: {str(e)}"
         )
     
-    # Get or create folder
-    db_folder = db.query(models.Folder).filter(models.Folder.name == folder).first()
-    if not db_folder:
-        logger.info(f"Creating new folder: {folder}")
-        db_folder = models.Folder(name=folder, description=f"Folder: {folder}")
-        db.add(db_folder)
-        db.commit()
-        db.refresh(db_folder)
+    # Use the globally defined GCSClient class for lazy initialization
+    # This approach makes the backend more resilient to startup failures
+    global GCSClient, gcs_client
     
-    uploaded_count = 0
-    errors = []
+    # Check if we already have a global gcs_client initialized
+    if gcs_client is None and GCSClient is not None:
+        try:
+            logger.info("Lazily initializing GCS client for batch upload...")
+            gcs_client = GCSClient()
+            logger.info(f"GCS client initialized: {gcs_client.is_initialized}")
+        except Exception as e:
+            logger.error(f"Failed to initialize GCS client: {str(e)}")
+            # We'll continue with a non-functional client that will use local storage
+            logger.warning("Using local storage fallback for file uploads due to GCS initialization error")
+    elif GCSClient is None:
+        logger.error("GCSClient class not available - uploads will fail")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="File upload service temporarily unavailable"
+        )
+    
+    # If gcs_client is still None at this point, we'll create a dummy client
+    # that will default to local storage
+    if gcs_client is None:
+        try:
+            logger.warning("Creating fallback GCS client that will use local storage")
+            from .utils.gcs import GCSClient as LocalGCSClient
+            gcs_client = LocalGCSClient()
+        except Exception as local_error:
+            logger.error(f"Could not create local fallback: {local_error}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="File upload service temporarily unavailable"
+            )
     
     # Process each image
+    uploaded_files = []
+    errors = []
+    uploaded_count = 0
+    
     for image in images:
         try:
-            # Create a temporary file for this image
-            filename = os.path.basename(image.filename)
-            temp_path = os.path.join("uploads", filename)
-            os.makedirs("uploads", exist_ok=True)
+            # Get file info
+            content = await image.read()
+            filename = image.filename
+            ext = pathlib.Path(filename).suffix.lower()
             
-            # Save the file locally first
-            with open(temp_path, "wb") as f:
-                content = await image.read()
-                f.write(content)
+            # Generate a unique filename
+            unique_name = f"{uuid.uuid4()}{ext}"
+            gcs_path = f"{folder}/{unique_name}"
             
-            # Upload to GCS
-            blob_path = f"photos/{filename}"
-            try:
-                with open(temp_path, "rb") as f:
-                    # Add metadata
-                    metadata = {
-                        "original_filename": filename,
-                        "folder": folder,
-                        "upload_time": datetime.datetime.now().isoformat()
-                    }
-                    
-                    # Upload file to GCS
-                    file_url = gcs_client.upload_file(
-                        f,
-                        blob_path,
-                        content_type=image.content_type,
-                        metadata=metadata
-                    )
-                    
-                # Create photo record
-                photo_data = {
-                    "filename": filename,
-                    "title": os.path.splitext(filename)[0].replace("_", " ").title(),
-                    "description": f"Uploaded to folder: {folder}",
-                    "url": file_url,
-                    "gcs_path": blob_path,
-                    "storage_path": blob_path,  # Also set storage_path field
-                    "mimetype": image.content_type,
-                    "file_size": len(content),  # Set the file size
-                    "is_public": True,
-                    "folder_id": db_folder.id,
-                    "owner_id": 1  # Default admin owner
-                }
-                
-                db_photo = models.Photo(**photo_data)
-                db.add(db_photo)
-                
-                # Schedule temp file cleanup
-                background_tasks.add_task(lambda p: os.unlink(p) if os.path.exists(p) else None, temp_path)
-                
-                uploaded_count += 1
-                logger.info(f"Successfully uploaded {filename} to {blob_path}")
-                
-            except Exception as e:
-                # Log error and continue with next image
-                error_msg = f"Failed to upload {filename}: {str(e)}"
-                logger.error(error_msg)
-                errors.append(error_msg)
-                # Try to clean up the temp file
-                try:
-                    if os.path.exists(temp_path):
-                        os.unlink(temp_path)
-                except:
-                    pass
-                
+            # Get content type
+            content_type = image.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            
+            logger.info(f"Uploading file {filename} ({len(content)} bytes) to {gcs_path}")
+            
+            # Create file-like object from bytes
+            from io import BytesIO
+            buffer = BytesIO(content)
+            
+            # Upload file to GCS
+            metadata = {
+                "original_filename": filename,
+                "uploaded_at": datetime.datetime.now().isoformat(),
+                "content_type": content_type,
+                "folder": folder
+            }
+            
+            url = gcs_client.upload_file(
+                buffer, gcs_path, content_type=content_type, metadata=metadata
+            )
+            
+            # Handle local storage URLs differently
+            # If URL is prefixed with 'local:', it's a local file
+            original_url = url
+            if url.startswith("local:"):
+                # Extract the path and update the URL to use our backend service
+                local_path = url.replace("local:", "")
+                service_url = os.environ.get("SERVICE_URL", "https://photoportfolio-backend-er4l5fctxq-uc.a.run.app")
+                url = f"{service_url}{local_path}"
+                logger.info(f"Local file, using URL: {url}")
+            
+            logger.info(f"Uploaded file to {url}")
+            
+            # Create photo record in database
+            photo_data = schemas.PhotoCreate(
+                title=filename,
+                filename=unique_name,
+                original_filename=filename,
+                description="",
+                url=url,  # Public URL to access the file
+                gcs_path=original_url,  # Store 'local:' prefix if it's a local file
+                mimetype=content_type,
+                size=len(content),
+                folder_id=db_folder.id
+            )
+            
+            db_photo = crud.create_photo(db=db, photo=photo_data)
+            logger.info(f"Created photo record with ID {db_photo.id}")
+            
+            uploaded_files.append({
+                "name": filename,
+                "url": url,
+                "id": db_photo.id,
+                "size": len(content),
+                "type": content_type
+            })
+            
+            uploaded_count += 1
+            
         except Exception as e:
             # Log error and continue with next image
-            error_msg = f"Error processing {image.filename}: {str(e)}"
+            error_msg = f"Failed to process {image.filename}: {str(e)}"
             logger.error(error_msg)
             errors.append(error_msg)
     
-    # Commit successful uploads
-    db.commit()
+    # Commit successful uploads if using database
+    if db and engine is not None:
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"Error committing to database: {str(e)}")
     
-    # Prepare response
-    response = {
-        "uploaded": uploaded_count,
+    # Calculate duration
+    duration = time.time() - start_time
+    logger.info(f"Batch upload completed in {duration:.2f}s")
+    
+    # Prepare response with appropriate status code
+    if uploaded_count == 0 and errors:
+        # All uploads failed
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "All uploads failed", "errors": errors}
+        )
+    
+    # Return success response
+    return {
+        "message": f"Batch upload completed. {uploaded_count} files processed.",
+        "uploaded_files": uploaded_files,
+        "uploaded_count": uploaded_count,
         "total": len(images),
         "folder": folder,
-        "folder_id": db_folder.id
+        "errors": errors if errors else None,
+        "duration": f"{duration:.2f}s"
     }
-    
-    if errors:
-        response["errors"] = errors
-        if uploaded_count == 0:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={"message": "All uploads failed", "errors": errors}
+
+# Make database connection more resilient for startup
+@app.middleware("http")
+async def db_session_middleware(request: Request, call_next):
+    if engine is None:
+        # Return a helpful response if database is not configured
+        if request.url.path.startswith("/api/upload"):
+            # For upload endpoint, continue even without DB
+            pass
+        elif request.url.path == "/api/health" or request.url.path == "/":
+            # Allow health checks
+            pass
+        else:
+            # For other endpoints, return friendly message
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Database service is temporarily unavailable. Only uploads and static file serving are available."}
             )
     
+    response = await call_next(request)
     return response
 
 # Include routers if they were imported successfully

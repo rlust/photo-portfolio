@@ -20,7 +20,9 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 router = APIRouter(prefix="/api/photos", tags=["photos"])
 
+# Define both routes with and without trailing slash
 @router.get("/", response_model=List[schemas.Photo])
+@router.get("", response_model=List[schemas.Photo])  # This handles the path without trailing slash
 def list_photos(
     skip: int = 0,
     limit: int = 100,
@@ -28,11 +30,35 @@ def list_photos(
     db: Session = Depends(get_db)
 ):
     """List all photos with optional folder filtering."""
-    query = db.query(models.Photo)
-    if folder_id is not None:
-        query = query.filter(models.Photo.folder_id == folder_id)
-    photos = query.offset(skip).limit(limit).all()
-    return photos
+    logger.info(f"Getting photos with skip={skip}, limit={limit}, folder_id={folder_id}")
+    
+    try:
+        # Get total count for debugging
+        total_photos = db.query(models.Photo).count()
+        logger.info(f"Total photos in database: {total_photos}")
+        
+        # Build query
+        query = db.query(models.Photo)
+        if folder_id is not None:
+            query = query.filter(models.Photo.folder_id == folder_id)
+            
+        # Execute query with pagination
+        photos = query.offset(skip).limit(limit).all()
+        logger.info(f"Returning {len(photos)} photos")
+        
+        # Log first few for debugging
+        if photos:
+            for i, photo in enumerate(photos[:3]):
+                logger.info(f"Photo {i+1}: id={photo.id}, title={photo.title}, url={photo.url}")
+        else:
+            logger.warning("No photos found in database")
+            
+        return photos
+    except Exception as e:
+        logger.error(f"Error retrieving photos: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise
 
 @router.post("/", response_model=schemas.Photo, status_code=status.HTTP_201_CREATED)
 def create_photo(
@@ -109,20 +135,37 @@ async def upload_photo(
         # Determine file URL and path
         file_url = None
         if gcs_client.available and gcs_client.bucket:
-            # Upload to GCS
+            import traceback
+            # Upload to GCS with detailed error logging
             blob_path = f"photos/{filename}"
             try:
+                logger.info(f"Starting GCS upload for {filename} to {blob_path}")
                 with open(file_path, "rb") as f:
-                    gcs_client.upload_file(
+                    # Log GCS client state
+                    logger.info(f"GCS client available: {gcs_client.available}, bucket exists: {gcs_client.bucket is not None}")
+                    
+                    # Add file metadata
+                    metadata = {
+                        "original_filename": filename,
+                        "content_type": content_type,
+                        "size": str(file_size)
+                    }
+                    
+                    file_url = gcs_client.upload_file(
                         f,
                         blob_path,
-                        content_type=content_type
+                        content_type=content_type,
+                        metadata=metadata
                     )
-                file_url = f"gs://{gcs_client.bucket_name}/{blob_path}"
+                    logger.info(f"Successfully uploaded {filename} to GCS, URL: {file_url}")
+                    
                 # Schedule local file cleanup
                 background_tasks.add_task(cleanup_file, file_path)
             except Exception as e:
-                logger.error(f"GCS upload failed, falling back to local storage: {e}")
+                logger.error(f"GCS upload failed, falling back to local storage: {str(e)}")
+                traceback.print_exc()
+                # Reset file_url to None to trigger local fallback
+                file_url = None
         
         # If GCS upload failed or not available, use local path
         if not file_url:

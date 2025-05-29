@@ -2,10 +2,14 @@
   {
     "origin": [
       "https://photoportfolio-app.windsurf.build",
-      "https://photo-portfolio-cloud.windsurf.build"
+      "https://photo-portfolio-cloud.windsurf.build",
+      "http://localhost:3000",
+      "http://localhost:8080",
+      "https://photo-portfolio-backend-839093975626.us-central1.run.app",
+      "https://photo-portfolio-rlust.web.app"
     ],
     "method": ["GET", "HEAD", "PUT", "POST", "DELETE", "OPTIONS"],
-    "responseHeader": ["Content-Type", "x-goog-resumable", "x-goog-meta-*"],
+    "responseHeader": ["Content-Type", "Content-Length", "Content-Disposition", "Content-Range", "ETag", "Accept", "Accept-Encoding", "Authorization", "Origin", "x-goog-resumable", "x-goog-meta-*"],
     "maxAgeSeconds": 3600
   }
 ]

@@ -268,7 +268,12 @@ def create_db_engine(settings: Settings) -> Optional[Engine]:
         return None
 
 # Create the database engine and session factory
-engine = create_db_engine(settings)
+try:
+    engine = create_db_engine(settings)
+    print("[CONFIG] Successfully created database engine")
+except Exception as e:
+    print(f"[CONFIG] Warning: Could not create database engine: {e}")
+    engine = None
 
 if engine is not None:
     # Create session factory
