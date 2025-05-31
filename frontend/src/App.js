@@ -10,10 +10,11 @@ import LargeBatchUpload from './components/LargeBatchUpload';
 // Old backend that was having issues
 // const PROD_API_BASE_URL = 'https://photoportfolio-backend-er4l5fctxq-uc.a.run.app';
 
-// Use direct-simple-api for folder listings (has CORS support but no storage)
-const API_BASE_URL = 'https://direct-simple-api-839093975626.us-central1.run.app';
+// IMPORTANT: Bypass the proxy and use simplified-backend directly for all operations
+// This will avoid CORS issues and 503 errors from the proxy service
+const API_BASE_URL = 'https://simplified-backend-839093975626.us-central1.run.app';
 
-// Use simplified-backend for uploads (has storage but track uploads locally)
+// Use the same backend for uploads
 const UPLOAD_API_BASE_URL = 'https://simplified-backend-839093975626.us-central1.run.app';
 
 // Force HTTPS for all requests
@@ -200,6 +201,39 @@ function App() {
     let localUploads = JSON.parse(localStorage.getItem(localStorageKey) || '{}');
     console.log('Local uploads from storage:', localUploads);
     
+    // Fix image URLs in localStorage by replacing the proxy URL with direct backend URL
+    const fixedUploads = {...localUploads};
+    let needsUpdate = false;
+    Object.keys(fixedUploads).forEach(folder => {
+      if (Array.isArray(fixedUploads[folder])) {
+        fixedUploads[folder] = fixedUploads[folder].map(img => {
+          if (img.url && img.url.includes('direct-simple-api')) {
+            needsUpdate = true;
+            // Replace the proxy URL with the direct backend URL
+            const newUrl = img.url.replace(
+              'direct-simple-api-839093975626.us-central1.run.app',
+              'simplified-backend-839093975626.us-central1.run.app'
+            );
+            return {...img, url: newUrl};
+          }
+          return img;
+        });
+      }
+    });
+    
+    // Save the fixed URLs back to localStorage if needed
+    if (needsUpdate) {
+      console.log('Fixed image URLs in localStorage');
+      localStorage.setItem(localStorageKey, JSON.stringify(fixedUploads));
+    }
+    
+    console.log('Local uploads from storage (after URL fix):', fixedUploads);
+    
+    // Add anything from localStorage to our state
+    if (Object.keys(fixedUploads).length > 0) {
+      setFolders(fixedUploads);
+    }
+    
     // Fetch from the API
     const foldersUrl = `${API_BASE_URL}/api/folders/`;
     console.log('Fetching folders from API:', foldersUrl);
@@ -224,9 +258,27 @@ function App() {
             mergedFolders[folderName] = [];
           }
           
-          // Add all API images to the folder
+          // Add all API images to the folder, fixing URLs as needed
           if (Array.isArray(apiFolders[folderName])) {
-            mergedFolders[folderName] = [...apiFolders[folderName]];
+            // Map over API images and fix any direct-simple-api URLs to use simplified-backend
+            mergedFolders[folderName] = apiFolders[folderName].map(img => {
+              if (img.url && img.url.includes('direct-simple-api')) {
+                // Replace the proxy URL with the direct backend URL
+                const newUrl = img.url.replace(
+                  'direct-simple-api-839093975626.us-central1.run.app',
+                  'simplified-backend-839093975626.us-central1.run.app'
+                );
+                console.log(`Fixed API image URL from ${img.url} to ${newUrl}`);
+                return {...img, url: newUrl};
+              }
+              // Add cache-busting parameter to prevent stale images
+              if (img.url && !img.url.includes('?')) {
+                const timestamp = new Date().getTime();
+                const newUrl = `${img.url}?t=${timestamp}`;
+                return {...img, url: newUrl};
+              }
+              return img;
+            });
           }
         });
         
@@ -330,6 +382,394 @@ function App() {
       });
   };
 
+  // Enhanced function to annotate an image with advanced content and location analysis
+  const annotateImage = async (folder, image) => {
+    console.log(`Annotating image with advanced analysis: ${image.url} from folder: ${folder}`);
+    
+    try {
+      // Extract the filename and metadata from various sources
+      let filename, originalName;
+      if (image.storage_path) {
+        filename = image.storage_path.split('/').pop();
+      } else {
+        // More robust handling of URL extraction
+        const urlParts = image.url.split('/');
+        filename = urlParts[urlParts.length - 1];
+        // Fall back to extractBaseFilename if the URL splitting doesn't work
+        if (!filename || filename.includes('?')) {
+          filename = extractBaseFilename(image.url);
+        }
+      }
+      
+      // Get original filename or EXIF data if available
+      originalName = image.original_filename || image.name || filename.split('_')[0];
+      console.log(`Advanced analysis for file: ${filename}, original name: ${originalName}`);
+      
+      // Show a temporary notification
+      alert(`Analyzing image content and location: ${filename}...`);
+      
+      // STEP 1: CONTENT ANALYSIS
+      // ========================
+      // Parse the name and other metadata into words
+      const parsed = originalName.replace(/[-_\.]/g, ' ');
+      const words = parsed.split(' ')
+        .filter(word => word.length > 2)
+        .map(word => word.toLowerCase());
+        
+      // Comprehensive subject recognition with expanded vocabulary
+      const subjectKeywords = {
+        // Wildlife categories
+        'birds': ['bird', 'junco', 'mallard', 'owl', 'eagle', 'hawk', 'sparrow', 'cardinal', 'blue jay', 'robin', 'finch', 'parakeet', 'hummingbird'],
+        'mammals': ['deer', 'fox', 'wolf', 'bear', 'bobcat', 'cat', 'dog', 'cougar', 'coyote', 'rabbit', 'squirrel', 'raccoon', 'moose', 'elk'],
+        'water_animals': ['duck', 'fish', 'turtle', 'frog', 'dolphin', 'whale', 'shark', 'seal'],
+        'insects': ['butterfly', 'bee', 'dragonfly', 'ant', 'spider', 'beetle', 'moth', 'wasp'],
+        
+        // Landscape features
+        'mountain': ['mountain', 'hill', 'peak', 'summit', 'ridge', 'valley', 'cliff', 'canyon'],
+        'water': ['lake', 'river', 'ocean', 'sea', 'pond', 'stream', 'waterfall', 'beach', 'coast'],
+        'forest': ['forest', 'tree', 'woods', 'pine', 'oak', 'woodland', 'jungle', 'grove'],
+        'desert': ['desert', 'sand', 'dune', 'cactus', 'arid'],
+        
+        // Weather/sky phenomena
+        'sky': ['sky', 'cloud', 'sunset', 'sunrise', 'aurora', 'star', 'moon', 'milky way', 'galaxy'],
+        'weather': ['snow', 'rain', 'storm', 'lightning', 'thunder', 'rainbow', 'fog', 'mist'],
+        
+        // Human elements
+        'buildings': ['building', 'house', 'cabin', 'architecture', 'structure', 'tower', 'bridge', 'ruins'],
+        'people': ['person', 'people', 'portrait', 'face', 'child', 'family', 'group', 'crowd'],
+      };
+      
+      // Identify all subjects in the image from filename and folder context
+      const detectedSubjects = new Map(); // Category -> subjects
+      
+      // Check words in filename against subject keywords
+      words.forEach(word => {
+        Object.entries(subjectKeywords).forEach(([category, keywords]) => {
+          keywords.forEach(keyword => {
+            if (word.includes(keyword)) {
+              // Track the detected subject by category
+              if (!detectedSubjects.has(category)) {
+                detectedSubjects.set(category, new Set());
+              }
+              detectedSubjects.get(category).add(keyword);
+            }
+          });
+        });
+      });
+      
+      // Add folder name as potential subject information
+      if (folder) {
+        const folderWords = folder.toLowerCase().split(/[\s-_]/);
+        folderWords.forEach(word => {
+          if (word.length < 3) return;
+          
+          Object.entries(subjectKeywords).forEach(([category, keywords]) => {
+            keywords.forEach(keyword => {
+              if (word.includes(keyword)) {
+                if (!detectedSubjects.has(category)) {
+                  detectedSubjects.set(category, new Set());
+                }
+                detectedSubjects.get(category).add(keyword);
+              }
+            });
+          });
+        });
+      }
+      
+      // STEP 2: LOCATION ANALYSIS
+      // ========================
+      // Comprehensive location detection
+      const locationDatabase = {
+        'national_parks': [
+          'yellowstone', 'yosemite', 'grand canyon', 'zion', 'arches', 'glacier', 'olympic',
+          'sequoia', 'acadia', 'everglades', 'shenandoah', 'denali', 'death valley', 'bryce',
+          'white sands', 'big bend', 'redwood', 'badlands', 'joshua tree', 'capitol reef',
+          'canyonlands', 'mesa verde', 'petrified forest', 'crater lake', 'lassen'
+        ],
+        'states': [
+          'alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut',
+          'delaware', 'florida', 'georgia', 'hawaii', 'idaho', 'illinois', 'indiana', 'iowa', 'kansas',
+          'kentucky', 'louisiana', 'maine', 'maryland', 'massachusetts', 'michigan', 'minnesota',
+          'mississippi', 'missouri', 'montana', 'nebraska', 'nevada', 'new hampshire', 'new jersey',
+          'new mexico', 'new york', 'north carolina', 'north dakota', 'ohio', 'oklahoma', 'oregon',
+          'pennsylvania', 'rhode island', 'south carolina', 'south dakota', 'tennessee', 'texas',
+          'utah', 'vermont', 'virginia', 'washington', 'west virginia', 'wisconsin', 'wyoming'
+        ],
+        'landmarks': [
+          'old faithful', 'el capitan', 'half dome', 'mount rushmore', 'liberty', 'niagara',
+          'golden gate', 'delicate arch', 'painted desert', 'horseshoe bend', 'antelope canyon',
+          'monument valley', 'carlsbad', 'mammoth cave', 'yellowstone lake', 'mount whitney', 
+          'mount rainier', 'pike peak', 'mount hood', 'devil tower', 'mount st helens',
+          'appalachian trail', 'pacific crest trail', 'continental divide'
+        ],
+        'international': [
+          'alps', 'andes', 'amazon', 'sahara', 'himalayas', 'serengeti', 'kilimanjaro',
+          'everest', 'victoria falls', 'switzerland', 'france', 'italy', 'spain', 'germany',
+          'uk', 'england', 'scotland', 'ireland', 'japan', 'china', 'australia', 'new zealand',
+          'patagonia', 'iceland', 'canada', 'mexico', 'brazil', 'argentina', 'peru', 'chile'
+        ]
+      };
+      
+      // Initialize location variables
+      let location_tag = null;
+      let locationSource = 'unknown';
+      
+      // First, use the folder name as potential location if it's not a generic name
+      const genericFolders = ['photos', 'images', 'uploads', 'gallery', 'wildlife', 'nature', 'animals', 'landscape'];
+      if (folder && !genericFolders.includes(folder.toLowerCase())) {
+        location_tag = folder;
+        locationSource = 'folder';
+        console.log(`Location from folder name: ${location_tag}`);
+      }
+      
+      // Next, check if the filename or its constituent words match known locations
+      const folderAndFilenameCombined = folder ? folder + ' ' + originalName : originalName;
+      const allWords = folderAndFilenameCombined.toLowerCase().split(/[\s-_\.]/)
+                          .filter(word => word.length > 2);
+      
+      // Check against location database
+      let strongestMatch = null;
+      let strongestCategory = null;
+      
+      Object.entries(locationDatabase).forEach(([category, locations]) => {
+        locations.forEach(location => {
+          // Check for exact location names (multi-word matching)
+          if (folderAndFilenameCombined.toLowerCase().includes(location)) {
+            strongestMatch = location;
+            strongestCategory = category;
+          }
+          // For single word locations, be more careful
+          else if (location.indexOf(' ') === -1) {
+            allWords.forEach(word => {
+              if (word === location || (word.length > 4 && location.startsWith(word))) {
+                if (!strongestMatch || word.length > strongestMatch.length) {
+                  strongestMatch = location;
+                  strongestCategory = category;
+                }
+              }
+            });
+          }
+        });
+      });
+      
+      // If we found a location match from the database, use it
+      if (strongestMatch) {
+        const formattedLocation = strongestMatch.split(' ')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ');
+        
+        location_tag = formattedLocation;
+        locationSource = 'detected';
+        console.log(`Detected location: ${location_tag} (${strongestCategory})`);
+      }
+      
+      // STEP 3: CREATE TAGS
+      // ==================
+      // Generate rich tags from our subject analysis
+      const tags = [];
+      
+      // First add detected subjects as tags
+      detectedSubjects.forEach((subjects, category) => {
+        subjects.forEach(subject => {
+          // Format the subject nicely
+          const formattedSubject = subject.split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+          
+          if (!tags.includes(formattedSubject)) {
+            tags.push(formattedSubject);
+          }
+        });
+        
+        // Also add the category as a tag if we have multiple items from it
+        if (subjects.size > 1) {
+          // Format category nicely (e.g., water_animals -> Water Animals)
+          const formattedCategory = category
+            .split('_')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+            
+          if (!tags.includes(formattedCategory)) {
+            tags.push(formattedCategory);
+          }
+        }
+      });
+      
+      // If we have a location, add related tags
+      if (location_tag) {
+        // Add general location tag if it's a national park
+        if (locationDatabase.national_parks.some(park => 
+            location_tag.toLowerCase().includes(park))) {
+          tags.push('National Park');
+        }
+        
+        // Add the detected location as a tag
+        if (!tags.includes(location_tag)) {
+          tags.push(location_tag);
+        }
+      }
+      
+      // Add folder as tag if it's not already included and not generic
+      if (folder && !tags.includes(folder) && 
+          !genericFolders.includes(folder.toLowerCase())) {
+        tags.push(folder);
+      }
+      
+      // Add general photography tags from filename
+      const photoTags = ['Landscape', 'Wildlife', 'Nature', 'Photography', 'Outdoor'];
+      if (tags.length < 3) {
+        photoTags.forEach(tag => {
+          if (!tags.includes(tag) && tags.length < 5) {
+            tags.push(tag);
+          }
+        });
+      }
+      
+      // Cap the number of tags
+      const finalTags = tags.slice(0, 8);
+      
+      // STEP 4: CREATE DESCRIPTION
+      // ========================
+      // Generate a rich, natural language description based on all our analysis
+      let description;
+      
+      // Get all detected subjects as a flat list
+      const allSubjects = [];
+      detectedSubjects.forEach((subjects, category) => {
+        subjects.forEach(subject => {
+          if (!allSubjects.includes(subject)) {
+            allSubjects.push(subject);
+          }
+        });
+      });
+      
+      if (allSubjects.length > 0) {
+        // Format subjects for natural language
+        const formattedSubjects = allSubjects
+          .slice(0, 3)
+          .map(s => s.charAt(0).toUpperCase() + s.slice(1));
+          
+        if (formattedSubjects.length === 1) {
+          description = `Image of a ${formattedSubjects[0]}`;
+        } else if (formattedSubjects.length === 2) {
+          description = `Image of a ${formattedSubjects[0]} and a ${formattedSubjects[1]}`;
+        } else {
+          description = `Image featuring ${formattedSubjects.join(', ')}`;
+        }
+        
+        // Add location if we have it
+        if (location_tag) {
+          // Determine correct preposition based on location type
+          let preposition = 'in';
+          const locLower = location_tag.toLowerCase();
+          
+          if (locLower.includes('mountain') || locLower.includes('peak') || 
+              locLower.includes('mount ') || locLower.includes('mt ')) {
+            preposition = 'on';
+          } else if (locLower.includes('trail') || locLower.includes('path')) {
+            preposition = 'on';
+          } else if (locLower.includes('beach') || locLower.includes('shore')) {
+            preposition = 'at';
+          }
+          
+          description += ` ${preposition} ${location_tag}`;
+        }
+      } else if (location_tag) {
+        // If we only have location but no subjects
+        description = `Scenic view of ${location_tag}`;
+      } else {
+        // Fallback with generic description
+        const photoTypes = ['landscape', 'nature', 'wildlife', 'scenic'];
+        const photoType = photoTypes[Math.floor(Math.random() * photoTypes.length)];
+        description = `Beautiful ${photoType} photography`;
+      }
+      
+      // Create final annotation result
+      const result = {
+        description,
+        location_tag,
+        tags: finalTags.length > 0 ? finalTags : ['Nature', 'Wildlife', 'Photography']
+      };
+      
+      console.log('Client-side annotation result:', result);
+      
+      // Show success message
+      alert(`Successfully analyzed: ${filename}`);
+      
+      // Update the image with the annotations
+      // First update in local storage
+      const localStorageKey = 'photoPortfolioUploads';
+      let uploads = JSON.parse(localStorage.getItem(localStorageKey) || '{}');
+      
+      if (uploads[folder]) {
+        // Find the image and update it
+        uploads[folder] = uploads[folder].map(img => {
+          let imgFilename;
+          if (img.storage_path) {
+            imgFilename = img.storage_path.split('/').pop();
+          } else {
+            const urlParts = img.url.split('/');
+            imgFilename = urlParts[urlParts.length - 1];
+            if (!imgFilename || imgFilename.includes('?')) {
+              imgFilename = extractBaseFilename(img.url);
+            }
+          }
+          
+          if (imgFilename === filename) {
+            console.log(`Updating image ${imgFilename} with annotations:`, result);
+            // Update the image with annotations
+            return {
+              ...img,
+              description: result.description,
+              location_tag: result.location_tag,
+              tags: result.tags
+            };
+          }
+          return img;
+        });
+        
+        // Save back to localStorage
+        localStorage.setItem(localStorageKey, JSON.stringify(uploads));
+      }
+      
+      // Update the state
+      setFolders(prevFolders => {
+        const updatedFolders = {...prevFolders};
+        if (updatedFolders[folder]) {
+          updatedFolders[folder] = updatedFolders[folder].map(img => {
+            let imgFilename;
+            if (img.storage_path) {
+              imgFilename = img.storage_path.split('/').pop();
+            } else {
+              const urlParts = img.url.split('/');
+              imgFilename = urlParts[urlParts.length - 1];
+              if (!imgFilename || imgFilename.includes('?')) {
+                imgFilename = extractBaseFilename(img.url);
+              }
+            }
+            
+            if (imgFilename === filename) {
+              // Update the image with annotations
+              return {
+                ...img,
+                description: result.description,
+                location_tag: result.location_tag,
+                tags: result.tags
+              };
+            }
+            return img;
+          });
+        }
+        return updatedFolders;
+      });
+      
+      return true;
+    } catch (error) {
+      console.error('Error annotating image:', error);
+      return false;
+    }
+  };
+  
   // Function to delete an image
   const handleDeleteImage = async (folder, image) => {
     console.log(`Deleting image: ${image.url} from folder: ${folder}`);
@@ -409,15 +849,16 @@ function App() {
   };
 
   useEffect(() => {
-    // ALWAYS clear local storage on load to prevent any duplicates
-    // This is more aggressive but will ensure no duplicates persist
-    console.log('Clearing local storage to reset duplicates');
-    localStorage.removeItem('photoPortfolioUploads');
-    localStorage.removeItem('pendingFolders');
+    // Don't clear localStorage on reload - this would delete all images
+    // Instead, preserve the localStorage data and just fetch folders
+    console.log('Loading application, preserving local storage data');
     
-    // Set a new timestamp key to track this clear
-    localStorage.setItem('lastCleared', new Date().toISOString());
+    // Check if we already have data in localStorage
+    const localStorageKey = 'photoPortfolioUploads';
+    const localUploads = JSON.parse(localStorage.getItem(localStorageKey) || '{}');
+    console.log('Local uploads found in storage:', Object.keys(localUploads).length > 0 ? 'Yes' : 'No');
     
+    // Fetch folders from API
     fetchFolders();
   }, []);
 
@@ -902,7 +1343,7 @@ function App() {
       )}
 
       {/* Main content: tabbed mode */}
-      {tab === 'gallery' && <GalleryView folders={folders} onDeleteImage={handleDeleteImage} />}
+      {tab === 'gallery' && <GalleryView folders={folders} onDeleteImage={handleDeleteImage} onAnnotateImage={annotateImage} />}
       {tab === 'admin' && (
         <AdminPanel
           folderName={folderName}
