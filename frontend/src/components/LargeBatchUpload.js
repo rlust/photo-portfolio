@@ -4,8 +4,8 @@ import React, { useState } from "react";
 const UPLOAD_BACKEND_URL = 'https://simplified-backend-839093975626.us-central1.run.app';
 const UPLOAD_ENDPOINT = `${UPLOAD_BACKEND_URL}/api/batch-upload`;
 
-// Use the direct-simple-api for image loading (includes proxy for images)
-const IMAGE_SERVING_URL = 'https://direct-simple-api-839093975626.us-central1.run.app';
+// Use the simplified-backend directly for image loading
+const IMAGE_SERVING_URL = 'https://simplified-backend-839093975626.us-central1.run.app';
 
 export default function LargeBatchUpload({ onUploaded, onUploadSuccess }) {
   const [files, setFiles] = useState([]);

@@ -18,12 +18,21 @@ const fixImageUrl = (url) => {
   return url;
 };
 
-export default function GalleryView({ folders, onDeleteImage }) {
+export default function GalleryView({ folders, onDeleteImage, onAnnotateImage }) {
   // All hooks must be at the top
   const [selectedFolder, setSelectedFolder] = useState(null);
 
-  // Auto-select the first folder with images when folders change
+  // Auto-select the first folder only if no folder is currently selected
+  // This preserves the current folder when annotations are added
   useEffect(() => {
+    // If a folder is already selected and still exists with images, keep it selected
+    if (selectedFolder && 
+        folders[selectedFolder] && 
+        folders[selectedFolder].length > 0) {
+      return;
+    }
+    
+    // Otherwise, select the first folder with images
     const folderNames = Object.keys(folders);
     for (let folder of folderNames) {
       if (folders[folder] && folders[folder].length > 0) {
@@ -116,34 +125,58 @@ export default function GalleryView({ folders, onDeleteImage }) {
                       onClick={() => openLightbox(idx)}
                       onError={e => {e.target.onerror=null; e.target.src='/notfound.png';}}
                     />
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (onDeleteImage && window.confirm(`Delete image "${img.name || 'Untitled'}"?`)) {
-                          onDeleteImage(selectedFolder, img);
-                        }
-                      }}
-                      style={{
-                        position: 'absolute',
-                        top: 8,
-                        right: 8,
-                        background: 'rgba(255, 0, 0, 0.7)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '50%',
-                        width: '30px',
-                        height: '30px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '16px',
-                        cursor: 'pointer',
-                        fontWeight: 'bold'
-                      }}
-                      title="Delete image"
-                    >
-                      ×
-                    </button>
+                    <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: '8px' }}>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onAnnotateImage) {
+                            onAnnotateImage(selectedFolder, img);
+                          }
+                        }}
+                        style={{
+                          background: 'rgba(0, 128, 255, 0.7)',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '50%',
+                          width: '30px',
+                          height: '30px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '16px',
+                          cursor: 'pointer',
+                          fontWeight: 'bold'
+                        }}
+                        title="Annotate image with AI"
+                      >
+                        🔍
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onDeleteImage && window.confirm(`Delete image "${img.name || 'Untitled'}"`)) {
+                            onDeleteImage(selectedFolder, img);
+                          }
+                        }}
+                        style={{
+                          background: 'rgba(255, 0, 0, 0.7)',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '50%',
+                          width: '30px',
+                          height: '30px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '16px',
+                          cursor: 'pointer',
+                          fontWeight: 'bold'
+                        }}
+                        title="Delete image"
+                      >
+                        ×
+                      </button>
+                    </div>
                   </>
                 ) : (
                   <div style={{width:160,height:160,background:'#eee',display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'6px',border:'1px solid #ddd'}}>No image</div>
@@ -151,28 +184,38 @@ export default function GalleryView({ folders, onDeleteImage }) {
               </div>
               <div className="gallery-info">{img.name || 'Untitled'}</div>
               <div className="gallery-folder">{img.folder || selectedFolder}</div>
-              {img.location_tag && img.location_tag.trim() !== ""
-  ? (
-      <div>
-        <span role="img" aria-label="location" style={{marginRight:3}}>📍</span>
-        <span className="gallery-location-tag">{img.location_tag}</span>
-      </div>
-    )
-  : (
-      <div style={{ color: '#888', fontStyle: 'italic', display: 'flex', alignItems: 'center' }}>
-        <span className="spinner" style={{
-          width: '1em',
-          height: '1em',
-          border: '2px solid #ccc',
-          borderTop: '2px solid #888',
-          borderRadius: '50%',
-          marginRight: 6,
-          animation: 'spin 1s linear infinite',
-          display: 'inline-block'
-        }}></span>
-        Annotating…
-      </div>
-    )}
+              
+              {/* Description from AI */}
+              {img.description && (
+                <div style={{ marginTop: '5px', color: '#444', fontSize: '0.9em' }}>
+                  <span role="img" aria-label="description" style={{marginRight:3}}>📝</span>
+                  <span>{img.description}</span>
+                </div>
+              )}
+              
+              {/* Location tag */}
+              {img.location_tag && img.location_tag.trim() !== "" ? (
+                <div style={{ marginTop: '5px' }}>
+                  <span role="img" aria-label="location" style={{marginRight:3}}>📍</span>
+                  <span className="gallery-location-tag">{img.location_tag}</span>
+                </div>
+              ) : null}
+              
+              {/* Tags section */}
+              {img.tags && img.tags.length > 0 ? (
+                <div style={{ marginTop: '5px', display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                  {img.tags.slice(0, 5).map((tag, idx) => (
+                    <span key={idx} style={{
+                      background: 'rgba(0, 120, 215, 0.1)',
+                      color: '#0078d7',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      fontSize: '0.8em',
+                      fontWeight: 'bold'
+                    }}>{tag}</span>
+                  ))}
+                </div>
+              ) : null}
               {img.mimetype && <div style={{fontSize:'0.9em',color:'var(--text-muted, #888)'}}>{img.mimetype}</div>}
               {img.uploaded_at && <div style={{fontSize:'0.85em',color:'var(--text-muted, #aaa)'}}>{String(img.uploaded_at).slice(0,10)}</div>}
             </div>
@@ -207,11 +250,37 @@ export default function GalleryView({ folders, onDeleteImage }) {
           />
           <button onClick={showNext} style={{position:'absolute',right:40,top:'50%',transform:'translateY(-50%)',fontSize:40,color:'#fff',background:'none',border:'none',cursor:'pointer',fontWeight:'bold'}}>&#8594;</button>
           <div style={{position:'absolute',bottom:40,left:0,right:0,textAlign:'center',color:'#fff',fontSize:'1.2rem',fontWeight:'bold',textShadow:'0 2px 8px #000'}}>
+            {/* Image title */}
             {images[lightboxIdx].name}
+            
+            {/* Description */}
+            {images[lightboxIdx].description && (
+              <div style={{fontSize:'1.05rem',fontWeight:'normal',marginTop:6,color:'#fff',textShadow:'0 1px 4px #000'}}>
+                <span>{images[lightboxIdx].description}</span>
+              </div>
+            )}
+            
+            {/* Location */}
             {images[lightboxIdx].location_tag && (
               <div style={{fontSize:'1.05rem',fontWeight:'normal',marginTop:6,color:'#cbe',textShadow:'0 1px 4px #000'}}>
                 <span role="img" aria-label="location" style={{marginRight:3}}>📍</span>
                 <span>{images[lightboxIdx].location_tag}</span>
+              </div>
+            )}
+            
+            {/* Tags */}
+            {images[lightboxIdx].tags && images[lightboxIdx].tags.length > 0 && (
+              <div style={{display:'flex',flexWrap:'wrap',gap:'8px',justifyContent:'center',marginTop:10}}>
+                {images[lightboxIdx].tags.slice(0, 5).map((tag, idx) => (
+                  <span key={idx} style={{
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    color: '#fff',
+                    padding: '3px 10px',
+                    borderRadius: '12px',
+                    fontSize: '0.9em',
+                    textShadow: 'none'
+                  }}>{tag}</span>
+                ))}
               </div>
             )}
           </div>
