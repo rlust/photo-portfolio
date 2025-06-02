@@ -1104,20 +1104,30 @@ async def list_files():
 # Add an endpoint to reindex the Google Cloud Storage bucket
 @app.get("/api/reindex-gcs")
 @app.post("/api/reindex-gcs")
-async def reindex_gcs():
-    """Scan the GCS bucket and update the database with image metadata."""
-    logger.info("Starting GCS bucket reindexing process")
+async def reindex_gcs(batch_size: int = 10, folder_filter: str = None, start_after: str = None):
+    """Scan the GCS bucket and update the database with image metadata.
+    
+    This endpoint supports batching to avoid Cloud Run timeouts:
+    - batch_size: Number of images to process in a single request (default: 10)
+    - folder_filter: Only process a specific folder
+    - start_after: Start processing after this filename (for pagination)
+    """
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{request_id}] Starting GCS bucket reindexing process")
     
     # Get the GCS bucket name from environment variable or use default
     bucket_name = os.environ.get("GCS_BUCKET", "photoportfolio-uploads")
     
     # Statistics for tracking the reindexing process
     stats = {
+        "request_id": request_id,
         "folders_processed": 0,
         "folders_created": 0,
         "images_processed": 0,
         "images_added": 0,
-        "errors": []
+        "errors": [],
+        "complete": False,
+        "next_batch": {}
     }
     
     try:
@@ -1126,13 +1136,13 @@ async def reindex_gcs():
         
         # If storage client isn't initialized, try to initialize it now
         if not storage_client:
-            logger.info("Storage client not initialized, attempting to initialize it now")
+            logger.info(f"[{request_id}] Storage client not initialized, attempting to initialize it now")
             try:
                 storage_client = storage.Client()
-                logger.info("Successfully initialized storage client")
+                logger.info(f"[{request_id}] Successfully initialized storage client")
             except Exception as init_error:
                 error_msg = f"Failed to initialize storage client: {str(init_error)}"
-                logger.error(error_msg)
+                logger.error(f"[{request_id}] {error_msg}")
                 return JSONResponse(
                     status_code=500,
                     content={"detail": error_msg}
@@ -1142,79 +1152,130 @@ async def reindex_gcs():
         try:
             # Test if we can list buckets (just to verify credentials)
             list(storage_client.list_buckets(max_results=1))
-            logger.info("Storage client verified working")
+            logger.info(f"[{request_id}] Storage client verified working")
         except Exception as verify_error:
             error_msg = f"Storage client verification failed: {str(verify_error)}"
-            logger.error(error_msg)
+            logger.error(f"[{request_id}] {error_msg}")
             # Try to re-initialize
             try:
                 storage_client = storage.Client()
-                logger.info("Re-initialized storage client after verification failure")
+                logger.info(f"[{request_id}] Re-initialized storage client after verification failure")
             except Exception as reinit_error:
                 error_msg = f"Failed to re-initialize storage client: {str(reinit_error)}"
-                logger.error(error_msg)
+                logger.error(f"[{request_id}] {error_msg}")
                 return JSONResponse(
                     status_code=500,
                     content={"detail": error_msg}
                 )
             
-        logger.info(f"Accessing bucket: {bucket_name}")
+        logger.info(f"[{request_id}] Accessing bucket: {bucket_name}")
         bucket = storage_client.bucket(bucket_name)
         
         # Check if bucket exists
         if not bucket.exists():
             error_msg = f"Bucket {bucket_name} does not exist"
-            logger.error(error_msg)
+            logger.error(f"[{request_id}] {error_msg}")
             return JSONResponse(
                 status_code=404,
                 content={"detail": error_msg}
             )
         
-        # Get all blobs in the bucket with folders/ prefix
-        blobs = storage_client.list_blobs(bucket_name, prefix="folders/")
+        # Get folder names to process
+        folder_names = []
         
-        # Extract folder names
-        folder_names = set()
-        for blob in blobs:
-            # Skip the folders/ prefix itself
-            if blob.name == "folders/":
-                continue
-                
-            # Extract folder name from path
-            path_parts = blob.name.split('/')
-            if len(path_parts) > 1 and path_parts[0] == "folders":
-                folder_names.add(path_parts[1])
-        
-        logger.info(f"Found {len(folder_names)} folders in bucket")
+        if folder_filter:
+            # Process only the specified folder
+            folder_names = [folder_filter]
+            logger.info(f"[{request_id}] Processing only folder: {folder_filter}")
+        else:
+            # Get all blobs in the bucket with folders/ prefix
+            logger.info(f"[{request_id}] Listing all folders in bucket")
+            blobs = storage_client.list_blobs(bucket_name, prefix="folders/")
+            
+            # Extract folder names
+            folder_set = set()
+            for blob in blobs:
+                # Skip the folders/ prefix itself
+                if blob.name == "folders/":
+                    continue
+                    
+                # Extract folder name from path
+                path_parts = blob.name.split('/')
+                if len(path_parts) > 1 and path_parts[0] == "folders":
+                    folder_set.add(path_parts[1])
+            
+            folder_names = sorted(folder_set)
+            logger.info(f"[{request_id}] Found {len(folder_names)} folders in bucket")
         
         # Create folder directories locally if they don't exist
         uploads_dir = Path("uploads")
         if not uploads_dir.exists():
             uploads_dir.mkdir(parents=True)
-            
-        # Process each folder
-        for folder_name in sorted(folder_names):
+        
+        # Keep track of remaining items to process
+        images_processed_in_batch = 0
+        next_folder_index = 0
+        next_start_after = None
+        continue_from_folder = None
+        has_more = False
+        
+        # Handle start_after for pagination
+        if start_after and len(folder_names) > 0:
+            parts = start_after.split('/')
+            if len(parts) == 2:
+                continue_from_folder = parts[0]
+                next_start_after = parts[1]
+                try:
+                    next_folder_index = folder_names.index(continue_from_folder)
+                except ValueError:
+                    # Folder not found, start from beginning
+                    next_folder_index = 0
+                    next_start_after = None
+        
+        # Process folders batch by batch
+        while next_folder_index < len(folder_names) and images_processed_in_batch < batch_size:
+            folder_name = folder_names[next_folder_index]
             folder_path = uploads_dir / folder_name
+            
             if not folder_path.exists():
                 folder_path.mkdir(parents=True)
-                
-            logger.info(f"Processing folder: {folder_name}")
+                stats["folders_created"] += 1
+            
+            logger.info(f"[{request_id}] Processing folder: {folder_name}")
             stats["folders_processed"] += 1
             
             # Get all blobs in this folder
             folder_prefix = f"folders/{folder_name}/"
-            folder_blobs = storage_client.list_blobs(bucket_name, prefix=folder_prefix)
             
-            # Process each image in the folder
-            for blob in folder_blobs:
+            # If continuing from a previous batch within this folder
+            if folder_name == continue_from_folder and next_start_after:
+                logger.info(f"[{request_id}] Continuing from file: {next_start_after} in folder: {folder_name}")
+            
+            folder_blobs = list(storage_client.list_blobs(bucket_name, prefix=folder_prefix))
+            folder_blobs.sort(key=lambda b: b.name)
+            
+            # Skip files until we reach the start_after point
+            file_index = 0
+            if folder_name == continue_from_folder and next_start_after:
+                for i, blob in enumerate(folder_blobs):
+                    filename = blob.name.split('/')[-1]
+                    if filename == next_start_after:
+                        file_index = i + 1  # Start with the next file
+                        break
+            
+            # Process files in this folder up to the batch limit
+            while file_index < len(folder_blobs) and images_processed_in_batch < batch_size:
+                blob = folder_blobs[file_index]
+                
                 # Skip if this is the folder itself or not a file
                 if blob.name == folder_prefix or blob.name.endswith('/'):
+                    file_index += 1
                     continue
-                    
+                
                 try:
                     # Extract filename
                     filename = blob.name.split('/')[-1]
-                    logger.info(f"Processing image: {filename}")
+                    logger.info(f"[{request_id}] Processing image: {filename}")
                     
                     # Generate public URL
                     url = f"https://storage.googleapis.com/{bucket_name}/{blob.name}"
@@ -1225,7 +1286,7 @@ async def reindex_gcs():
                     # Download the image if it doesn't exist locally
                     if not local_path.exists():
                         blob.download_to_filename(str(local_path))
-                        logger.info(f"Downloaded {filename} to {local_path}")
+                        logger.info(f"[{request_id}] Downloaded {filename} to {folder_name}/{filename}")
                     
                     # Add metadata to the database (if we had one)
                     # In a real app, we would store this information in a database
@@ -1235,16 +1296,46 @@ async def reindex_gcs():
                     
                 except Exception as e:
                     error_msg = f"Error processing image {blob.name}: {str(e)}"
-                    logger.error(error_msg)
+                    logger.error(f"[{request_id}] {error_msg}")
+                    logger.error(f"[{request_id}] {traceback.format_exc()}")
                     stats["errors"].append(error_msg)
+                
+                file_index += 1
+                images_processed_in_batch += 1
+                next_start_after = filename
+            
+            # Check if we've processed all files in this folder
+            if file_index < len(folder_blobs):
+                # We haven't finished this folder yet
+                has_more = True
+                break
+            else:
+                # We've finished this folder, move to the next one
+                next_folder_index += 1
+                next_start_after = None
+                continue_from_folder = None
+        
+        # Check if there are more batches to process
+        if next_folder_index < len(folder_names):
+            has_more = True
+            # Save state for next batch
+            next_folder = folder_names[next_folder_index]
+            stats["next_batch"] = {
+                "folder_filter": folder_filter,
+                "start_after": f"{next_folder}/{next_start_after}" if next_start_after else next_folder
+            }
+            stats["complete"] = False
+        else:
+            stats["complete"] = True
         
         # Return success response
         return JSONResponse(
             status_code=200,
             content={
                 "status": "success",
-                "message": "GCS bucket reindexing completed",
-                "stats": stats
+                "message": "GCS bucket reindexing batch completed" if has_more else "GCS bucket reindexing completed",
+                "stats": stats,
+                "has_more": has_more
             }
         )
         
