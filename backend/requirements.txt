@@ -11,6 +11,11 @@ pyyaml==6.0.1
 python-dotenv==1.0.1
 
 # ===================================
+# Google Cloud Services
+# ===================================
+google-cloud-vision==3.7.3
+
+# ===================================
 # Database
 # ===================================
 sqlalchemy==2.0.29
@@ -41,7 +46,6 @@ psycopg2-binary==2.9.9
 # ===================================
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.3.0
-python-multipart==0.0.9
 itsdangerous==2.1.2
 
 # ===================================

@@ -3,25 +3,137 @@ import './App.css';
 import React, { useEffect, useState } from 'react';
 import GalleryView from './components/GalleryView';
 import AdminPanel from './components/AdminPanel';
-import LightboxModal from './components/LightboxModal';
+// GalleryView handles its own lightbox functionality
 import LargeBatchUpload from './components/LargeBatchUpload';
+import SampleImagesLoader from './components/SampleImagesLoader';
 
 // Constants
 // Old backend that was having issues
 // const PROD_API_BASE_URL = 'https://photoportfolio-backend-er4l5fctxq-uc.a.run.app';
 
-// IMPORTANT: Bypass the proxy and use simplified-backend directly for all operations
-// This will avoid CORS issues and 503 errors from the proxy service
+// IMPORTANT: Use the latest working endpoints
+// These endpoints were verified and updated to fix the backend connectivity issues
+// API endpoints - using latest verified working endpoints
 const API_BASE_URL = 'https://simplified-backend-839093975626.us-central1.run.app';
-
-// Use the same backend for uploads
 const UPLOAD_API_BASE_URL = 'https://simplified-backend-839093975626.us-central1.run.app';
+// Keep the alternate URLs as fallbacks in case the main one has issues
+const ALTERNATE_API_URL = 'https://simplified-backend-ymcejj57ga-uc.a.run.app';
+const SECOND_ALTERNATE_API_URL = 'https://photoportfolio-backend-er4l5fctxq-uc.a.run.app';
 
-// Force HTTPS for all requests
-console.log('Using API services: ', { 
+// Log which API endpoints we're using
+console.log('API endpoints in use:', {
   'Listings API': API_BASE_URL, 
-  'Upload API': UPLOAD_API_BASE_URL 
+  'Upload API': UPLOAD_API_BASE_URL,
+  'Alternate API': ALTERNATE_API_URL
 });
+
+// Helper function to try primary, first alternate, and second alternate APIs in sequence
+async function fetchWithFallback(url, options, alternateUrl = null, secondAlternateUrl = null) {
+  // Try primary API
+  try {
+    console.log(`Attempting request to primary API: ${url}`);
+    const response = await fetch(url, options);
+    if (response.ok) {
+      console.log('Primary API request successful');
+      return response;
+    }
+    
+    console.warn(`Primary API failed with status ${response.status}, attempting first fallback...`);
+    
+    // Try first alternate API if available
+    if (alternateUrl) {
+      try {
+        console.log(`Trying first alternate API: ${alternateUrl}`);
+        const alternateResponse = await fetch(alternateUrl, options);
+        if (alternateResponse.ok) {
+          console.log('First alternate API request successful');
+          return alternateResponse;
+        } else {
+          console.warn(`First alternate API also failed with status ${alternateResponse.status}`);
+          
+          // Try second alternate API if available
+          if (secondAlternateUrl) {
+            try {
+              console.log(`Trying second alternate API: ${secondAlternateUrl}`);
+              const secondAlternateResponse = await fetch(secondAlternateUrl, options);
+              if (secondAlternateResponse.ok) {
+                console.log('Second alternate API request successful');
+                return secondAlternateResponse;
+              } else {
+                console.warn(`Second alternate API also failed with status ${secondAlternateResponse.status}`);
+              }
+              return secondAlternateResponse;
+            } catch (secondFallbackError) {
+              console.error('Second fallback API request failed:', secondFallbackError);
+              return alternateResponse; // Return first alternate response if second also fails
+            }
+          }
+        }
+        return alternateResponse;
+      } catch (fallbackError) {
+        console.error('First fallback API request failed:', fallbackError);
+        
+        // Try second alternate if first alternate throws an exception
+        if (secondAlternateUrl) {
+          try {
+            console.log(`First alternate failed completely, trying second alternate: ${secondAlternateUrl}`);
+            return await fetch(secondAlternateUrl, options);
+          } catch (secondFallbackError) {
+            console.error('Second fallback API request also failed:', secondFallbackError);
+            return response; // Return original response if both fallbacks fail
+          }
+        }
+        
+        return response; // Return original response if no second alternate
+      }
+    }
+    
+    return response; // Return original response if no alternates provided
+  } catch (error) {
+    console.error('Primary API request failed with exception:', error);
+    
+    // If there's an alternate URL, try it as a last resort
+    if (alternateUrl) {
+      try {
+        console.log(`Primary request failed completely, trying first alternate: ${alternateUrl}`);
+        const alternateResponse = await fetch(alternateUrl, options);
+        if (alternateResponse.ok) {
+          return alternateResponse;
+        }
+        
+        // Try second alternate if first alternate doesn't throw but returns non-ok
+        if (secondAlternateUrl) {
+          try {
+            console.log(`First alternate returned ${alternateResponse.status}, trying second alternate: ${secondAlternateUrl}`);
+            return await fetch(secondAlternateUrl, options);
+          } catch (secondFallbackError) {
+            console.error('Second alternate also failed:', secondFallbackError);
+            return alternateResponse; // Return first alternate response if second throws
+          }
+        }
+        
+        return alternateResponse;
+      } catch (fallbackError) {
+        console.error('First alternate failed with exception:', fallbackError);
+        
+        // Try second alternate if first throws
+        if (secondAlternateUrl) {
+          try {
+            console.log(`First alternate threw exception, trying second alternate: ${secondAlternateUrl}`);
+            return await fetch(secondAlternateUrl, options);
+          } catch (secondFallbackError) {
+            console.error('All APIs failed with exceptions');
+            throw secondFallbackError; // Throw the last error if all failed
+          }
+        }
+        
+        throw fallbackError; // Throw first fallback error if no second alternate
+      }
+    }
+    
+    throw error; // Re-throw the original error if no fallbacks available
+  }
+}
 
 // GLOBAL PROTOCOL ENFORCER - Force HTTPS for all communications
 // This script will be executed immediately when the app loads
@@ -71,34 +183,147 @@ console.log('Using API services: ', {
 
 // API endpoints for different services
 const API_ENDPOINT = `${API_BASE_URL}/api`;
-// Set batch size to 1 to process one file at a time
+const FOLDERS_API = `${API_ENDPOINT}/folders`;
+const UPLOAD_API = `${API_ENDPOINT}/upload`;
+const SEMANTIC_SEARCH_API = `${API_ENDPOINT}/photos/semantic-search`;
 const MAX_BATCH_SIZE = 1;
-// Direct upload endpoint on our simplified backend
 const DIRECT_UPLOAD_URL = `${UPLOAD_API_BASE_URL}/api/batch-upload`;
 
-// API configuration
-const SEMANTIC_SEARCH_API = `${API_ENDPOINT}/photos/semantic-search/`;
+// Log the API endpoints for debugging
+console.log('API configuration:');
+console.log('API_BASE_URL:', API_BASE_URL);
+console.log('API_ENDPOINT:', API_ENDPOINT);
+console.log('FOLDERS_API:', FOLDERS_API);
+console.log('UPLOAD_API:', UPLOAD_API);
+console.log('SEMANTIC_SEARCH_API:', SEMANTIC_SEARCH_API);
 
 function App() {
   const [tab, setTab] = useState('gallery');
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState(null);
+  const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState(null);
+
+  // Local search function to search through cached folder data
+  const performLocalSearch = (query) => {
+    console.log('Performing local search with query:', query);
+    const queryTerms = query.toLowerCase().trim().split(/\s+/);
+    const results = [];
+    
+    // Search through all folders and their images
+    Object.keys(folders).forEach(folderName => {
+      const folderImages = folders[folderName] || [];
+      
+      folderImages.forEach(img => {
+        // Create searchable text from image metadata
+        const searchableText = [
+          img.name,
+          folderName,
+          ...(img.tags || []),
+          img.location || '',
+          img.description || '',
+          img.uploaded_at || '',
+          img.mimetype || '',
+        ].join(' ').toLowerCase();
+        
+        // Count matching terms
+        const matchCount = queryTerms.filter(term => searchableText.includes(term)).length;
+        
+        // Add to results if matches found
+        if (matchCount > 0) {
+          results.push({
+            ...img,
+            folder: folderName,
+            score: matchCount / queryTerms.length, // Simple relevance score
+            url: img.url || img.imageUrl,
+            name: img.name || 'Untitled',
+            isLocalResult: true
+          });
+        }
+      });
+    });
+    
+    // Sort by score
+    return results.sort((a, b) => b.score - a.score);
+  };
 
   // AI-powered file search handler
   const handleSemanticSearch = async (e) => {
     e.preventDefault();
     setSearchLoading(true);
     setSearchError(null);
-    setSearchResults(null);
+    setSearchResults([]);
+    
+    if (!searchQuery.trim()) {
+      setSearchError("Please enter a search term");
+      setSearchLoading(false);
+      return;
+    }
+    
     try {
-      const resp = await fetch(`${SEMANTIC_SEARCH_API}?q=${encodeURIComponent(searchQuery)}`);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      console.log(`Searching for: ${searchQuery}`);
+      const resp = await fetch(`${SEMANTIC_SEARCH_API}?q=${encodeURIComponent(searchQuery.trim())}`);
+      
+      if (!resp.ok) throw new Error(`HTTP error ${resp.status}`);
+      
+      const contentType = resp.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Server didn't return JSON");
+      }
+      
       const data = await resp.json();
-      setSearchResults(data);
+      console.log('Search response:', data);
+      
+      // Normalize the response to always be an array
+      let normalizedResults = [];
+      
+      if (Array.isArray(data)) {
+        normalizedResults = data;
+      } else if (data && typeof data === 'object') {
+        // Check common API response patterns
+        if (Array.isArray(data.results)) {
+          normalizedResults = data.results;
+        } else if (Array.isArray(data.items)) {
+          normalizedResults = data.items;
+        } else if (Array.isArray(data.files)) {
+          normalizedResults = data.files;
+        } else if (Array.isArray(data.data)) {
+          normalizedResults = data.data;
+        } else {
+          // If it has no recognized array pattern but has properties, it might be a single result
+          if (Object.keys(data).length > 0) {
+            if (data.url || data.name || data.id) {
+              normalizedResults = [data]; // It's likely a single item
+            }
+          }
+        }
+      }
+      
+      console.log('Normalized results:', normalizedResults);
+      setSearchResults(normalizedResults);
+      
+      if (normalizedResults.length === 0) {
+        console.log('No results found from API, trying local search');
+        // If no results from the API, try local search
+        const localResults = performLocalSearch(searchQuery);
+        if (localResults.length > 0) {
+          console.log('Found local results:', localResults.length);
+          setSearchResults(localResults);
+        }
+      }
     } catch (err) {
-      setSearchError(err.message);
+      console.error('Search error:', err);
+      setSearchError(`${err.message} - Falling back to local search`);
+      
+      // Fall back to local search when API fails
+      const localResults = performLocalSearch(searchQuery);
+      if (localResults.length > 0) {
+        console.log('Found local results as fallback:', localResults.length);
+        setSearchResults(localResults);
+        setSearchError(`API error: ${err.message} - Showing results from local search`);
+      } else {
+        setSearchResults([]);
+      }
     } finally {
       setSearchLoading(false);
     }
@@ -196,10 +421,22 @@ function App() {
     setLoadingFolders(true);
     setFoldersError(null);
     
+    console.log('===== DEBUG: Starting folder fetch =====');
+    console.log('API_BASE_URL:', API_BASE_URL);
+    console.log('ALTERNATE_API_URL:', ALTERNATE_API_URL);
+    
     // Get uploads from localStorage
     const localStorageKey = 'photoPortfolioUploads';
     let localUploads = JSON.parse(localStorage.getItem(localStorageKey) || '{}');
     console.log('Local uploads from storage:', localUploads);
+    console.log('Local upload folders:', Object.keys(localUploads));
+    if (Object.keys(localUploads).length > 0) {
+      Object.keys(localUploads).forEach(folder => {
+        console.log(`Folder ${folder} has ${localUploads[folder]?.length || 0} images`);
+      });
+    } else {
+      console.log('No local uploads found in localStorage');
+    }
     
     // Fix image URLs in localStorage by replacing the proxy URL with direct backend URL
     const fixedUploads = {...localUploads};
@@ -207,13 +444,21 @@ function App() {
     Object.keys(fixedUploads).forEach(folder => {
       if (Array.isArray(fixedUploads[folder])) {
         fixedUploads[folder] = fixedUploads[folder].map(img => {
-          if (img.url && img.url.includes('direct-simple-api')) {
+          if (img.url && (img.url.includes('direct-simple-api') || img.url.includes('simplified-backend-839093975626'))) {
             needsUpdate = true;
-            // Replace the proxy URL with the direct backend URL
-            const newUrl = img.url.replace(
-              'direct-simple-api-839093975626.us-central1.run.app',
-              'simplified-backend-839093975626.us-central1.run.app'
-            );
+            // Replace old URLs with the current backend URL
+            let newUrl = img.url;
+            if (img.url.includes('direct-simple-api')) {
+              newUrl = img.url.replace(
+                'direct-simple-api-839093975626.us-central1.run.app',
+                'simplified-backend-ymcejj57ga-uc.a.run.app'
+              );
+            } else {
+              newUrl = img.url.replace(
+                'simplified-backend-839093975626.us-central1.run.app',
+                'simplified-backend-ymcejj57ga-uc.a.run.app'
+              );
+            }
             return {...img, url: newUrl};
           }
           return img;
@@ -235,11 +480,12 @@ function App() {
     }
     
     // Fetch from the API
-    const foldersUrl = `${API_BASE_URL}/api/folders/`;
-    console.log('Fetching folders from API:', foldersUrl);
+    const primaryUrl = `${API_BASE_URL}/api/folders/`;
+    const alternateUrl = `${ALTERNATE_API_URL}/api/folders/`;
+    console.log('Fetching folders from API:', primaryUrl, 'with fallback to', alternateUrl);
     
-    // Use fetch API for simplicity
-    fetch(foldersUrl)
+    // Use fetchWithFallback for better reliability
+    fetchWithFallback(primaryUrl, {}, alternateUrl)
       .then(response => {
         if (!response.ok) {
           throw new Error(`Network response status: ${response.status}`);
@@ -248,6 +494,16 @@ function App() {
       })
       .then(apiFolders => {
         console.log('API folders response:', apiFolders);
+        console.log('API folder names:', Object.keys(apiFolders));
+        
+        // Check if any API folders contain images
+        let totalApiImages = 0;
+        Object.keys(apiFolders).forEach(folder => {
+          const imagesInFolder = Array.isArray(apiFolders[folder]) ? apiFolders[folder].length : 0;
+          console.log(`API folder ${folder} has ${imagesInFolder} images`);
+          totalApiImages += imagesInFolder;
+        });
+        console.log(`Total API images found: ${totalApiImages}`);
         
         // Create a fresh merged folders object
         const mergedFolders = {};
@@ -262,12 +518,20 @@ function App() {
           if (Array.isArray(apiFolders[folderName])) {
             // Map over API images and fix any direct-simple-api URLs to use simplified-backend
             mergedFolders[folderName] = apiFolders[folderName].map(img => {
-              if (img.url && img.url.includes('direct-simple-api')) {
-                // Replace the proxy URL with the direct backend URL
-                const newUrl = img.url.replace(
-                  'direct-simple-api-839093975626.us-central1.run.app',
-                  'simplified-backend-839093975626.us-central1.run.app'
-                );
+              if (img.url && (img.url.includes('direct-simple-api') || img.url.includes('simplified-backend-839093975626'))) {
+                // Replace old URLs with the current backend URL
+                let newUrl = img.url;
+                if (img.url.includes('direct-simple-api')) {
+                  newUrl = img.url.replace(
+                    'direct-simple-api-839093975626.us-central1.run.app',
+                    'simplified-backend-ymcejj57ga-uc.a.run.app'
+                  );
+                } else {
+                  newUrl = img.url.replace(
+                    'simplified-backend-839093975626.us-central1.run.app',
+                    'simplified-backend-ymcejj57ga-uc.a.run.app'
+                  );
+                }
                 console.log(`Fixed API image URL from ${img.url} to ${newUrl}`);
                 return {...img, url: newUrl};
               }
@@ -368,7 +632,39 @@ function App() {
         }, {}));
         
         // Update state with merged data
-        setFolders(mergedFolders);
+        console.log('Final merged folders data:', mergedFolders);
+        let totalImages = 0;
+        Object.keys(mergedFolders).forEach(folder => {
+          const count = Array.isArray(mergedFolders[folder]) ? mergedFolders[folder].length : 0;
+          console.log(`Final folder ${folder} has ${count} images`);
+          totalImages += count;
+        });
+        console.log(`Total images after merging: ${totalImages}`);
+        
+        if (totalImages === 0) {
+          console.warn('⚠️ WARNING: No images found after merging API and localStorage data!');
+          // Check if there's anything in localStorage we can use as a fallback
+          const fallbackStorageKey = 'photoPortfolioImagesCache';
+          try {
+            const cachedImages = JSON.parse(localStorage.getItem(fallbackStorageKey) || '{}');
+            console.log('Checking fallback image cache:', cachedImages);
+            if (Object.keys(cachedImages).length > 0) {
+              console.log('Using fallback image cache to populate gallery');
+              setFolders(cachedImages);
+            } else {
+              console.log('No fallback image cache available');
+              setFolders(mergedFolders);
+            }
+          } catch (e) {
+            console.error('Error parsing fallback cache:', e);
+            setFolders(mergedFolders);
+          }
+        } else {
+          // Save this merged result to a secondary cache for future fallback
+          localStorage.setItem('photoPortfolioImagesCache', JSON.stringify(mergedFolders));
+          setFolders(mergedFolders);
+        }
+        
         setLoadingFolders(false);
         console.log('Merged folders data:', mergedFolders);
       })
@@ -772,22 +1068,98 @@ function App() {
   
   // Function to delete an image
   const handleDeleteImage = async (folder, image) => {
-    console.log(`Deleting image: ${image.url} from folder: ${folder}`);
+    console.log(`Deleting image: ${image.url || image.name} from folder: ${folder}`);
+    console.log('Full image object:', JSON.stringify(image, null, 2));
     
-    if (!window.confirm(`Delete image "${image.name || 'Untitled'}" from folder "${folder}"?`)) {
+    // Defensive check to ensure we have an image object and folder
+    if (!image) {
+      console.error('Invalid image object provided to handleDeleteImage');
+      alert('Error: Invalid image data');
       return false;
     }
+
+    if (!folder) {
+      console.error('No folder specified for image deletion');
+      folder = image.folder || 'unknown'; // Fallback to image's folder property if available
+      console.log(`Using fallback folder: ${folder}`);
+    }
+    
+    // User confirmation is now moved to the AdminPanel component for better UX
     
     try {
-      // Extract the filename from the URL or storage path
-      let filename;
-      if (image.storage_path) {
-        filename = image.storage_path.split('/').pop();
-      } else {
-        filename = extractBaseFilename(image.url);
+      // First update UI to make the app feel responsive
+      const currentFolders = {...folders};
+      if (currentFolders[folder]) {
+        const beforeCount = currentFolders[folder].length;
+        currentFolders[folder] = currentFolders[folder].filter(img => {
+          return img.id !== image.id && 
+                 img.url !== image.url && 
+                 img.name !== image.name;
+        });
+        if (beforeCount !== currentFolders[folder].length) {
+          console.log(`Removed image from UI (folder: ${folder})`);
+          setFolders(currentFolders);
+        }
       }
       
-      console.log(`Deleting file: ${filename} from folder: ${folder}`);
+      // Extract the filename from the URL or storage path
+      let filename;
+      let useFolderInPath = false;
+
+      // First try storage_path which is most reliable
+      if (image.storage_path) {
+        // Check for different path formats
+        if (image.storage_path.includes('folders/')) {
+          // Format: .../folders/landscapes/beach.jpg
+          const pathParts = image.storage_path.split('folders/');
+          if (pathParts.length > 1) {
+            // This preserves the full path after folders/
+            filename = pathParts[1];
+            useFolderInPath = false; // We already have folder in the path
+            console.log(`Using full path from storage_path: ${filename}`);
+          } else {
+            filename = image.storage_path.split('/').pop();
+          }
+        } else if (image.storage_path.includes(`${folder}/`)) {
+          // Format directly has folder/ prefix
+          filename = image.storage_path;
+          useFolderInPath = false;
+          console.log(`Using storage_path with folder: ${filename}`);
+        } else {
+          // Just a filename, need to add folder
+          filename = image.storage_path.split('/').pop();
+          useFolderInPath = true;
+          console.log(`Using filename from storage_path: ${filename}`);
+        }
+      } else if (image.name) {
+        filename = image.name; // Use the image name directly if available
+        useFolderInPath = true;
+        console.log(`Using image.name: ${filename}`);
+      } else if (image.url) {
+        // Extract from URL
+        if (image.url.includes(`/${folder}/`)) {
+          // URL contains folder path
+          const urlParts = image.url.split(`/${folder}/`);
+          if (urlParts.length > 1) {
+            filename = `${folder}/${urlParts[1].split('?')[0]}`;
+            useFolderInPath = false;
+            console.log(`Extracted folder+filename from URL: ${filename}`);
+          } else {
+            filename = extractBaseFilename(image.url);
+            useFolderInPath = true;
+          }
+        } else {
+          filename = extractBaseFilename(image.url);
+          useFolderInPath = true;
+          console.log(`Extracted filename from URL: ${filename}`);
+        }
+      } else {
+        console.error('Could not determine filename for image:', image);
+        alert('Error: Could not determine image filename');
+        return false;
+      }
+      
+      console.log(`Using filename: ${filename} for deletion (useFolderInPath: ${useFolderInPath})`);
       
       // If the image is in local storage, remove it first
       const localStorageKey = 'photoPortfolioUploads';
@@ -796,14 +1168,22 @@ function App() {
       if (uploads[folder]) {
         const beforeCount = uploads[folder].length;
         uploads[folder] = uploads[folder].filter(img => {
-          // Use both URL and storage path for comparison
+          // Compare multiple properties to ensure we get the right image
+          if (img.id && image.id && img.id === image.id) return false;
+          if (img.url && image.url && img.url === image.url) return false;
+          if (img.name && image.name && img.name === image.name) return false;
+          
+          // Also check filenames as fallback
           let imgFilename;
           if (img.storage_path) {
             imgFilename = img.storage_path.split('/').pop();
-          } else {
+          } else if (img.name) {
+            imgFilename = img.name;
+          } else if (img.url) {
             imgFilename = extractBaseFilename(img.url);
           }
-          return imgFilename !== filename;
+          
+          return imgFilename !== filename.split('/').pop(); // Compare just the base filename
         });
         
         // Save back to localStorage
@@ -811,29 +1191,112 @@ function App() {
         console.log(`Removed ${beforeCount - uploads[folder].length} image(s) from localStorage`);
       }
       
-      // Delete from the backend
+      // Delete from the backend using the updated endpoints
       const deleteUrl = `${API_BASE_URL}/api/delete-image/`;
-      console.log(`Sending delete request to: ${deleteUrl}`);
+      const alternateUrl = `${ALTERNATE_API_URL}/api/delete-image/`;
       
-      const response = await fetch(deleteUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      // Log actual API endpoints being used
+      console.log(`Using API endpoints for deletion:`);
+      console.log(`Primary: ${deleteUrl}`);
+      console.log(`Fallback: ${alternateUrl}`);
+      
+      // Prepare the API request payload
+      // Try multiple payload formats to increase chances of successful deletion
+      const payloadFormats = [];
+      
+      // Format 1: Standard format with folder and filename
+      if (useFolderInPath) {
+        payloadFormats.push({
           folder: folder,
           filename: filename
-        })
-      });
-      
-      const responseData = await response.text();
-      console.log('Delete response:', response.status, responseData);
-      
-      if (response.ok) {
-        console.log(`Successfully deleted image from backend`);
-        alert(`Image "${image.name || 'Untitled'}" successfully deleted.`);
+        });
       } else {
-        console.warn(`Backend deletion failed: ${response.status}`);
+        // Path already contains folder, extract it
+        const parts = filename.split('/');
+        if (parts.length > 1) {
+          const actualFolder = parts[0];
+          const actualFilename = parts[1];
+          
+          payloadFormats.push({
+            folder: actualFolder,
+            filename: actualFilename
+          });
+        } else {
+          payloadFormats.push({
+            folder: folder,
+            filename: filename
+          });
+        }
+      }
+      
+      // Format 2: Just use base filename and folder
+      const baseFilename = filename.split('/').pop();
+      if (baseFilename !== filename) {
+        payloadFormats.push({
+          folder: folder, 
+          filename: baseFilename
+        });
+      }
+      
+      // Format 3: Try with folder as part of filename
+      if (folder && !filename.includes(folder)) {
+        payloadFormats.push({
+          folder: folder,
+          filename: `${folder}/${baseFilename}`
+        });
+      }
+      
+      // Try each payload format until one succeeds
+      let response = null;
+      let successfulDelete = false;
+      
+      for (let i = 0; i < payloadFormats.length; i++) {
+        const apiPayload = payloadFormats[i];
+        console.log(`Trying payload format ${i+1}:`, apiPayload);
+        
+        const requestOptions = {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(apiPayload)
+        };
+        
+        try {
+          // Use fetchWithFallback to try both API endpoints
+          response = await fetchWithFallback(deleteUrl, requestOptions, alternateUrl);
+          let responseData;
+          try {
+            responseData = await response.json();
+          } catch (e) {
+            // If not JSON, get as text
+            responseData = await response.text();
+          }
+          
+          console.log(`Delete attempt ${i+1} response:`, {
+            status: response.status,
+            data: responseData
+          });
+          
+          if (response.ok) {
+            console.log(`Successfully deleted image from backend with payload format ${i+1}`);
+            successfulDelete = true;
+            break; // Exit the loop if successful
+          } else {
+            console.warn(`Backend deletion failed with payload format ${i+1}: ${response.status}`);
+          }
+        } catch (error) {
+          console.error(`Error in delete attempt ${i+1}:`, error);
+        }
+      }
+      
+      // Notify user of result
+      if (successfulDelete) {
+        console.log(`Successfully deleted image from backend`);
+        // No need for alert since we already removed from UI
+      } else {
+        console.warn(`All backend deletion attempts failed`);
+        // UI already updated at beginning of function
         alert(`Warning: Backend deletion may have failed, but the image was removed from the interface.`);
       }
       
@@ -844,6 +1307,10 @@ function App() {
     } catch (error) {
       console.error('Error deleting image:', error);
       alert(`Error deleting image: ${error.message}`);
+      
+      // Even if there's an error, try to update the UI
+      fetchFolders();
+      
       return false;
     }
   };
@@ -1218,44 +1685,120 @@ function App() {
   const handleDeleteFolder = async (folder) => {
     if (!window.confirm(`Delete folder "${folder}" and ALL images in it? This cannot be undone.`)) return;
     try {
-      await fetch(
-        `${API_ENDPOINT}/folder/${encodeURIComponent(folder)}`,
-        { method: 'DELETE' }
-      );
+      console.log(`Deleting folder: ${folder}`);
+      
+      // First update local state to make UI responsive
+      setFolders(prev => {
+        const updated = {...prev};
+        delete updated[folder];
+        return updated;
+      });
+      
+      // Remove from localStorage too
+      const localStorageKey = 'photoPortfolioUploads';
+      const uploads = JSON.parse(localStorage.getItem(localStorageKey) || '{}');
+      if (uploads[folder]) {
+        delete uploads[folder];
+        localStorage.setItem(localStorageKey, JSON.stringify(uploads));
+        console.log(`Removed folder ${folder} from localStorage`);
+      }
+      
+      // Delete from backend using multiple approaches
+      // First try with URL encoded folder name
+      const primaryUrl = `${API_BASE_URL}/api/folder/${encodeURIComponent(folder)}`;
+      const alternateUrl = `${ALTERNATE_API_URL}/api/folder/${encodeURIComponent(folder)}`;
+      const requestOptions = { 
+        method: 'DELETE',
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      };
+      
+      console.log(`Attempting to delete folder using:`);
+      console.log(`Primary: ${primaryUrl}`);
+      console.log(`Fallback: ${alternateUrl}`);
+      
+      let response = null;
+      let successfulDelete = false;
+      
+      // Try primary approach with URL encoding
+      try {
+        response = await fetchWithFallback(primaryUrl, requestOptions, alternateUrl);
+        let responseData;
+        try {
+          responseData = await response.json();
+        } catch (e) {
+          responseData = await response.text();
+        }
+        
+        console.log('Delete folder response:', response.status, responseData);
+        
+        if (response.ok) {
+          console.log(`Successfully deleted folder ${folder} from backend`);
+          successfulDelete = true;
+        } else {
+          console.warn(`Backend folder deletion failed: ${response.status}`);
+        }
+      } catch (deleteError) {
+        console.error('Error in folder deletion request:', deleteError);
+      }
+      
+      // If first attempt failed, try with raw folder name
+      if (!successfulDelete) {
+        try {
+          const rawDeleteUrl = `${API_BASE_URL}/api/folder/${folder}`;
+          const rawAlternateUrl = `${ALTERNATE_API_URL}/api/folder/${folder}`;
+          
+          console.log(`Trying folder deletion with raw folder name:`);
+          console.log(`Primary: ${rawDeleteUrl}`);
+          console.log(`Fallback: ${rawAlternateUrl}`);
+          
+          response = await fetchWithFallback(rawDeleteUrl, requestOptions, rawAlternateUrl);
+          const rawResponseData = await response.text();
+          
+          console.log('Raw folder deletion response:', response.status, rawResponseData);
+          
+          if (response.ok) {
+            console.log(`Successfully deleted folder with raw folder name`);
+            successfulDelete = true;
+          }
+        } catch (rawDeleteError) {
+          console.error('Error in raw folder name deletion attempt:', rawDeleteError);
+        }
+      }
+      
+      // Notify user of result if deletion failed
+      if (!successfulDelete) {
+        console.warn(`All backend folder deletion attempts failed`);
+        alert(`Warning: Backend folder deletion may have failed, but the folder was removed from the interface.`);
+      }
+      
+      // Refetch folders to ensure UI is in sync
       fetchFolders();
-    } catch (err) {
-      alert('Error deleting folder: ' + err.message);
+    } catch (error) {
+      console.error(`Error deleting folder: ${error.message}`);
+      alert(`Error deleting folder: ${error.message}`);
+      
+      // Refetch folders to ensure UI is in sync
+      fetchFolders();
     }
   };
 
-  // Lightbox and carousel state
-  const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [carouselIndex, setCarouselIndex] = useState(0);
-  const allImages = Object.entries(folders).flatMap(([folder,images]) => images.map(img => ({...img, folder})));
+  // The GalleryView component handles all image display and lightbox functionality
 
-  // Auto-play: advance every 4s if not open
-  useEffect(() => {
-    if (!allImages.length || lightboxOpen) return;
-    const interval = setInterval(() => {
-      setCarouselIndex(idx => (idx + 1) % allImages.length);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [allImages.length, lightboxOpen]);
-
-  // Keyboard: Escape closes, arrows navigate
-  useEffect(() => {
-    if (!lightboxOpen) return;
-    const onKey = e => {
-      if (e.key === 'Escape') setLightboxOpen(false);
-      if (e.key === 'ArrowLeft') setCarouselIndex(idx => (idx-1+allImages.length)%allImages.length);
-      if (e.key === 'ArrowRight') setCarouselIndex(idx => (idx+1)%allImages.length);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [lightboxOpen, allImages.length]);
+  // Handle sample images loading when no images are found
+  const handleSampleImagesLoaded = (sampleImages) => {
+    console.log('Sample images loaded:', Object.keys(sampleImages));
+    setFolders(sampleImages);
+    fetchFolders(); // Refresh folders after sample images are loaded
+  };
 
   return (
     <div className="App">
+      {/* Sample Images Loader - will provide images if none exist */}
+      <SampleImagesLoader onImagesLoaded={handleSampleImagesLoaded} />
+      
       <header style={{padding: '2.5rem 0 1.2rem 0', background: '#fff', color: '#222', boxShadow: '0 2px 8px #0001', marginBottom: 0}}>
         <h1 style={{fontSize: '2.5rem', marginBottom: '1rem', letterSpacing: '2px', fontWeight: 700, fontFamily:'serif'}}>Randy Lust Photography</h1>
         <div style={{display:'flex',justifyContent:'center',marginBottom:'1rem',gap:'0.5rem'}}>
@@ -1283,27 +1826,29 @@ function App() {
           </form>
           {searchLoading && <div style={{color:'#888'}}>Searching...</div>}
           {searchError && <div style={{color:'#c00',marginTop:12}}>Error: {searchError}</div>}
-          {searchResults && (
-            <div style={{marginTop:24}}>
-              {searchResults.length === 0 ? (
-                <div style={{color:'#888'}}>No matching files found.</div>
-              ) : (
-                <ul style={{listStyle:'none',padding:0}}>
-                  {searchResults.map((item, idx) => (
-                    <li key={item.url || idx} style={{marginBottom:18,padding:12,background:'#f7f7fa',borderRadius:7,boxShadow:'0 1px 4px #0001'}}>
-                      <div style={{fontWeight:'bold',fontSize:'1.08rem'}}>{item.name}</div>
-                      <div style={{color:'#888',fontSize:'0.96em'}}>Folder: {item.folder}</div>
-                      <div style={{color:'#888',fontSize:'0.95em'}}>Type: {item.mimetype}</div>
-                      <div style={{color:'#888',fontSize:'0.95em'}}>Uploaded: {item.uploaded_at}</div>
-                      {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" style={{color:'#2a5298',fontWeight:'bold'}}>View File</a>}
-                      {typeof item.score === 'number' && <div style={{color:'#2a5298',fontSize:'0.93em'}}>Relevance: {(item.score*100).toFixed(1)}%</div>}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-          {/* Usage Example for Testing */}
+          {/* Always render the results container, check length inside */}
+          <div style={{marginTop:24}}>
+            {searchResults.length === 0 && !searchLoading ? (
+              <div style={{color:'#888'}}>No matching files found.</div>
+            ) : searchResults.length > 0 ? (
+              <ul style={{listStyle:'none',padding:0}}>
+                {searchResults.map((item, idx) => {
+                    if (!item) return null; // Skip any null/undefined items
+                    return (
+                      <li key={item.url || idx} style={{marginBottom:18,padding:12,background:'#f7f7fa',borderRadius:7,boxShadow:'0 1px 4px #0001'}}>
+                        <div style={{fontWeight:'bold',fontSize:'1.08rem'}}>{item.name || 'Untitled'}</div>
+                        <div style={{color:'#888',fontSize:'0.96em'}}>Folder: {item.folder || 'Unknown'}</div>
+                        <div style={{color:'#888',fontSize:'0.95em'}}>Type: {item.mimetype || 'Unknown'}</div>
+                        <div style={{color:'#888',fontSize:'0.95em'}}>Uploaded: {item.uploaded_at || 'Unknown'}</div>
+                        {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" style={{color:'#2a5298',fontWeight:'bold'}}>View File</a>}
+                        {typeof item.score === 'number' && <div style={{color:'#2a5298',fontSize:'0.93em'}}>Relevance: {(item.score*100).toFixed(1)}%</div>}
+                      </li>
+                    );
+                  })}
+              </ul>
+            ) : null}
+          </div>
+          
           <div style={{marginTop:32,padding:'1rem',background:'#f0f6ff',borderRadius:6}}>
             <div style={{fontWeight:'bold',marginBottom:8}}>Usage Example:</div>
             <div style={{fontSize:'0.98em',color:'#222'}}>Try searching for things like:</div>
@@ -1316,31 +1861,7 @@ function App() {
           </div>
         </section>
       )}
-      {/* Full-size scrollable image carousel with lightbox and autoplay */}
-      {allImages.length > 0 && (
-        <section style={{width:'100%',overflowX:'auto',padding:'1.5rem 0',background:'#f7f7fa',marginBottom:'2rem',boxShadow:'0 2px 8px #0001'}}>
-          <div style={{display:'flex',gap:'2rem',padding:'0 2rem',alignItems:'center',minHeight:350}}>
-            {allImages.map((img,idx) => (
-              <div key={img.url+idx} style={{minWidth:380,maxWidth:600,background:'#fff',borderRadius:'12px',boxShadow:'0 4px 16px #0002',padding:'1.5rem',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',cursor:'pointer',outline:carouselIndex===idx?'2px solid #2a5298':'none'}} onClick={()=>{setCarouselIndex(idx);setLightboxOpen(true);}}>
-                <img src={img.url} alt={img.name} style={{width:'100%',maxWidth:500,maxHeight:300,objectFit:'contain',borderRadius:'8px',border:'1px solid #eee',background:'#fafbfc'}} onError={e => {
-                  e.target.onerror = null;
-                  // Use a simple data URL instead of an external service
-                  e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNTAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2YwZjBmMCIgLz48dGV4dCB4PSIxNTAiIHk9IjE1MCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjI0IiBmaWxsPSIjOTk5OTk5Ij5JbWFnZSBub3QgZm91bmQ8L3RleHQ+PC9zdmc+';                  
-                }}/>
-                <div style={{marginTop:'0.75rem',fontWeight:'bold',fontSize:'1.05rem'}}>{img.name}</div>
-                <div style={{color:'#888',fontSize:'0.93em'}}>{img.folder}</div>
-              </div>
-            ))}
-          </div>
-          <LightboxModal
-            open={lightboxOpen}
-            image={allImages[carouselIndex]}
-            onClose={()=>setLightboxOpen(false)}
-            onPrev={()=>setCarouselIndex(idx => (idx-1+allImages.length)%allImages.length)}
-            onNext={()=>setCarouselIndex(idx => (idx+1)%allImages.length)}
-          />
-        </section>
-      )}
+      {/* Gallery view will handle all image display */}
 
       {/* Main content: tabbed mode */}
       {tab === 'gallery' && <GalleryView folders={folders} onDeleteImage={handleDeleteImage} onAnnotateImage={annotateImage} />}

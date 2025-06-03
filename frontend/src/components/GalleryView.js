@@ -1,292 +1,484 @@
 import React, { useState, useEffect } from "react";
+import ReactDOM from "react-dom";
+import './GlassGallery.css';
 
-// Helper function to fix image URLs - this ensures both GCS and local storage URLs work
+// Helper function to fix image URLs - this ensures images are properly served from GCS via our proxy
 const fixImageUrl = (url) => {
   if (!url) return '/notfound.png';
   
-  // If it's a local path without domain, add the backend URL
-  if (url.startsWith('/static/')) {
-    return `https://photoportfolio-backend-er4l5fctxq-uc.a.run.app${url}`;
+  const BACKEND_URL = 'https://simplified-backend-839093975626.us-central1.run.app';
+  const FALLBACK_URL = 'https://simplified-backend-ymcejj57ga-uc.a.run.app';
+  const SECOND_FALLBACK_URL = 'https://photoportfolio-backend-er4l5fctxq-uc.a.run.app';
+  
+  // If URL contains the old static path pattern, convert to use our new GCS proxy
+  if (url.includes('/static/') || url.includes('/uploads/')) {
+    // Extract the folder and filename from the URL
+    const parts = url.split('/');
+    const folder = parts[parts.length - 2] === 'static' || parts[parts.length - 2] === 'uploads' 
+      ? 'test' // Default folder if coming from static or uploads
+      : parts[parts.length - 2];
+    const filename = parts[parts.length - 1];
+    
+    // Use the new GCS proxy endpoint
+    return `${BACKEND_URL}/gcs-proxy/${folder}/${filename}`;
   }
   
-  // If it has local: prefix, fix it
+  // If it has local: prefix, convert to use GCS proxy
   if (url.startsWith('local:')) {
     const path = url.replace('local:', '');
-    return `https://photoportfolio-backend-er4l5fctxq-uc.a.run.app${path}`;
+    const parts = path.split('/');
+    const filename = parts[parts.length - 1];
+    const folder = parts.length > 1 ? parts[parts.length - 2] : 'test';
+    
+    return `${BACKEND_URL}/gcs-proxy/${folder}/${filename}`;
+  }
+  
+  // If it's a GCS URL, convert to use our proxy for better CORS handling
+  if (url.includes('storage.googleapis.com/photoportfolio-uploads')) {
+    const parts = url.split('/');
+    const filename = parts[parts.length - 1];
+    // Try to extract folder from path or default to test
+    const folderIndex = parts.indexOf('photoportfolio-uploads') + 1;
+    const folder = folderIndex < parts.length - 1 ? parts[folderIndex] : 'test';
+    
+    return `${BACKEND_URL}/gcs-proxy/${folder}/${filename}`;
   }
   
   return url;
 };
 
-export default function GalleryView({ folders, onDeleteImage, onAnnotateImage }) {
-  // All hooks must be at the top
-  const [selectedFolder, setSelectedFolder] = useState(null);
-
-  // Auto-select the first folder only if no folder is currently selected
-  // This preserves the current folder when annotations are added
-  useEffect(() => {
-    // If a folder is already selected and still exists with images, keep it selected
-    if (selectedFolder && 
-        folders[selectedFolder] && 
-        folders[selectedFolder].length > 0) {
-      return;
+// Extract image tags from image metadata or filename
+const extractTags = (img) => {
+  let tags = [];
+  
+  // First priority: Use AI-generated tags if available
+  if (img.tags && Array.isArray(img.tags) && img.tags.length > 0) {
+    // Use AI-generated tags, but limit to 5 for cleaner UI
+    return img.tags.slice(0, 5);
+  }
+  
+  // Second priority: Use location tag if available
+  if (img.location_tag) {
+    tags.push(img.location_tag);
+  }
+  
+  // Add file type as a tag
+  if (img.name) {
+    const extension = img.name.split('.').pop().toUpperCase();
+    if (extension && extension.length < 5) tags.push(extension);
+  }
+  
+  // Extract creation date if available
+  if (img.creation_date) {
+    const date = new Date(img.creation_date);
+    if (!isNaN(date)) {
+      tags.push(date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' }));
     }
+  }
+  
+  // Add folder as a tag if we don't have many tags yet
+  if (img.folder && tags.length < 3) {
+    tags.push(img.folder);
+  }
+  
+  // Add metadata tags if available
+  if (img.metadata) {
+    if (img.metadata.camera && tags.length < 4) tags.push(img.metadata.camera);
+    if (img.metadata.location && tags.length < 4) tags.push(img.metadata.location);
+  }
+  
+  // Add size tag only if we don't have many tags
+  if (img.size_bytes && tags.length < 3) {
+    const sizeMB = (img.size_bytes / (1024 * 1024)).toFixed(1);
+    tags.push(`${sizeMB}MB`);
+  }
+  
+  // If we still don't have enough tags, extract from filename
+  if (tags.length < 2 && img.name) {
+    // Extract potential tags from filename
+    const nameParts = img.name.replace(/\d+/g, ' ').replace(/[^a-zA-Z ]/g, ' ').split(' ');
+    const filteredParts = nameParts.filter(part => 
+      part.length > 3 && 
+      !['IMG', 'PHOTO', 'JPG', 'JPEG', 'PNG'].includes(part.toUpperCase())
+    );
     
-    // Otherwise, select the first folder with images
-    const folderNames = Object.keys(folders);
-    for (let folder of folderNames) {
-      if (folders[folder] && folders[folder].length > 0) {
-        setSelectedFolder(folder);
-        return;
-      }
+    // Add up to 2 tags from filename
+    const filenameTagsToAdd = Math.min(2, filteredParts.length);
+    if (filenameTagsToAdd > 0) {
+      // Format the tags with proper capitalization
+      const formattedTags = filteredParts
+        .slice(0, filenameTagsToAdd)
+        .map(tag => tag.charAt(0).toUpperCase() + tag.slice(1).toLowerCase());
+      
+      tags = [...tags, ...formattedTags];
     }
-    setSelectedFolder(null); // No images in any folder
-  }, [folders]);
+  }
+  
+  // Add generic tags if we still don't have enough
+  if (tags.length < 2) {
+    const genericTags = ['Photo', 'Image', 'Nature', 'Wildlife'];
+    const tagsToAdd = Math.min(2, genericTags.length);
+    tags = [...tags, ...genericTags.slice(0, tagsToAdd)];
+  }
+  
+  // Limit to 5 tags for cleaner UI
+  return tags.slice(0, 5);
+};
 
-  const [theme, setTheme] = useState('light');
-  const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [lightboxIdx, setLightboxIdx] = useState(0);
+// SVG placeholder for TIFF files (browsers can't display TIFF)
+const TiffPlaceholder = () => (
+  <svg width="100%" height="100%" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+    <rect width="200" height="200" fill="#f0f0f0" />
+    <text x="50%" y="50%" dominantBaseline="middle" textAnchor="middle" fill="#666">
+      TIFF File
+    </text>
+    <text x="50%" y="65%" dominantBaseline="middle" textAnchor="middle" fill="#888" fontSize="12">
+      Preview Not Available
+    </text>
+  </svg>
+);
+
+// Lightbox component for image preview
+const ImageLightbox = ({ image, onClose }) => {
   const [zoomed, setZoomed] = useState(false);
+  
+  useEffect(() => {
+    // Add keydown listener to close on escape
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+  
+  if (!image) return null;
+  
+  return (
+    <div className="lightbox-overlay" onClick={onClose}>
+      <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
+        <button className="lightbox-close" onClick={onClose}>×</button>
+        <div className={`lightbox-image-container ${zoomed ? 'zoomed' : ''}`}>
+          <img 
+            src={fixImageUrl(image.url)} 
+            alt={image.name}
+            onClick={() => setZoomed(!zoomed)}
+            onError={(e) => {
+              if (image.name && image.name.toLowerCase().endsWith('.tiff')) {
+                e.target.style.display = 'none';
+                const placeholder = document.createElement('div');
+                placeholder.className = 'tiff-placeholder';
+                e.target.parentNode.appendChild(placeholder);
+                // Use React to render the TiffPlaceholder component
+                ReactDOM.render(<TiffPlaceholder />, placeholder);
+              } else if (image.gcs_url) {
+                // Try direct GCS URL as fallback
+                e.target.src = image.gcs_url;
+              }
+            }}
+          />
+        </div>
+        <div className="lightbox-details glass-container">
+          <h3>{image.name}</h3>
+          <div className="image-tags">
+            {extractTags(image).map((tag, i) => (
+              <span key={i} className="image-tag">{tag}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Main GalleryView component
+export default function GalleryView({ folders, onDeleteImage, onAnnotateImage }) {
+  const [selectedFolder, setSelectedFolder] = useState(null);
+  const [viewMode, setViewMode] = useState('folders'); // 'folders' or 'images'
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [isDarkMode, setIsDarkMode] = useState(false);
 
   const folderNames = Object.keys(folders);
-
+  
   // Compute images to display
-  // Only show images from the selected folder
   const images = selectedFolder ? (folders[selectedFolder] || []) : [];
-
+  
+  // Get one preview image per folder
+  const folderPreviews = {};
+  folderNames.forEach(folder => {
+    const folderImages = folders[folder] || [];
+    if (folderImages.length > 0) {
+      folderPreviews[folder] = folderImages[0];
+    }
+  });
 
   useEffect(() => {
-    document.body.classList.remove('theme-dark', 'theme-light');
-    document.body.classList.add('theme-' + theme);
-  }, [theme]);
+    // Apply dark/light mode to body
+    document.body.classList.toggle('dark-mode', isDarkMode);
+    return () => {
+      document.body.classList.remove('dark-mode');
+    };
+  }, [isDarkMode]);
 
   if (!folders || folderNames.length === 0) {
-    return <div style={{marginTop:'2rem', color:'#666', fontSize:'1.2rem'}}>No folders or images found. Try uploading images from the Admin panel.</div>;
+    return (
+      <div className={`gallery-container ${isDarkMode ? 'dark-mode' : ''}`}>
+        <div className="empty-state glass-container animate-fadeUp">
+          <h3>No folders or images found</h3>
+          <p>Try uploading images from the Admin panel first.</p>
+        </div>
+      </div>
+    );
   }
 
-  const openLightbox = idx => {
-    setLightboxIdx(idx);
-    setLightboxOpen(true);
-    setZoomed(false);
+  // Handlers for image and folder interactions
+  const openImage = (image) => {
+    setSelectedImage(image);
+    // Set viewMode to 'singleImage' to show only this image
+    setViewMode('singleImage');
   };
-  const closeLightbox = () => {
-    setLightboxOpen(false);
-    setZoomed(false);
+  
+  const closeImage = () => {
+    setSelectedImage(null);
+    // Return to folder view when closing the image
+    if (viewMode === 'singleImage') {
+      setViewMode('images');
+    }
   };
-  const showPrev = () => {
-    setLightboxIdx(idx => (idx - 1 + images.length) % images.length);
-    setZoomed(false);
+
+  const selectFolder = (folder) => {
+    setSelectedFolder(folder);
+    setViewMode('images');
   };
-  const showNext = () => {
-    setLightboxIdx(idx => (idx + 1) % images.length);
-    setZoomed(false);
+
+  const backToFolders = () => {
+    setViewMode('folders');
+    setSelectedFolder(null);
+  };
+  
+  const toggleTheme = () => {
+    setIsDarkMode(prev => !prev);
   };
 
   return (
-    <div style={{margin:'2rem auto',maxWidth:1000,position:'relative'}}>
-      <button
-        className="theme-toggle"
-        aria-label="Toggle theme"
-        onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-        title={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
-      >{theme === 'dark' ? '🌙' : '☀️'}</button>
-      {/* Folder Dropdown Selector Only */}
-      <div style={{display:'flex',justifyContent:'center',alignItems:'center',margin:'2rem 0 2.5rem 0'}}>
-        <label htmlFor="folder-select" style={{marginRight:14,fontWeight:'bold',fontSize:'1.1rem',color:'var(--text-main,#222)'}}>Select Folder:</label>
-        <select
-          id="folder-select"
-          value={selectedFolder || ''}
-          onChange={e => setSelectedFolder(e.target.value || null)}
-          style={{padding:'0.7rem 1.2rem',fontSize:'1.13rem',borderRadius:9,border:'1.5px solid #bbb',background:'#f7f8fa',color:'#222',fontWeight:'bold',boxShadow:'0 2px 8px #0001'}}
-          aria-label="Select folder to view"
-        >
-          <option value="" disabled>Choose a folder...</option>
-          {folderNames.map(folder => (
-            <option key={folder} value={folder}>{folder} ({folders[folder]?.length || 0} images)</option>
-          ))}
-        </select>
+    <div className={`gallery-container ${isDarkMode ? 'dark-mode' : ''}`}>
+      <div className="gallery-header glass-container">
+        <h2>Photo Gallery</h2>
+        <div className="gallery-controls">
+          {viewMode === 'images' && (
+            <button 
+              className="back-button glass-button" 
+              onClick={backToFolders}
+            >
+              <span>←</span> Back to Folders
+            </button>
+          )}
+          <button 
+            className="theme-toggle glass-button" 
+            onClick={toggleTheme}
+            aria-label={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {isDarkMode ? '☀️' : '🌙'}
+          </button>
+        </div>
       </div>
-      {selectedFolder === null ? (
-        <div style={{color:'var(--text-muted, #888)',marginTop:'2.5rem',fontSize:'1.18rem',textAlign:'center'}}>Please select a folder to view its images.</div>
-      ) : images.length === 0 ? (
-        <div style={{color:'var(--text-muted, #888)',marginTop:'2rem'}}>No images found in the selected folder.</div>
-      ) : (
-        <div className="gallery-grid">
-          {images.map((img,idx) => (
-            <div className="gallery-card" key={img.url+idx}>
-              <div style={{ position: 'relative' }}>
-                {img.url ? (
-                  <>
-                    <img
-                      src={fixImageUrl(img.url)}
-                      alt={img.name || 'Image'}
-                      title={img.name || ''}
-                      className="gallery-img"
-                      onClick={() => openLightbox(idx)}
-                      onError={e => {e.target.onerror=null; e.target.src='/notfound.png';}}
+      
+      {viewMode === 'folders' ? (
+        <div className="folder-preview-grid animate-fadeUp">
+          {folderNames.map(folder => {
+            const previewImage = folderPreviews[folder];
+            const imageCount = folders[folder]?.length || 0;
+            
+            return (
+              <div 
+                key={folder} 
+                className="folder-preview-card glass-container" 
+                onClick={() => selectFolder(folder)}
+              >
+                <div className="folder-preview-image">
+                  {previewImage ? (
+                    <img 
+                      src={fixImageUrl(previewImage.url)} 
+                      alt={`Preview of ${folder}`}
+                      onError={(e) => {
+                        if (previewImage.name && previewImage.name.toLowerCase().endsWith('.tiff')) {
+                          // Replace with TIFF placeholder
+                          e.target.style.display = 'none';
+                          const placeholder = document.createElement('div');
+                          placeholder.className = 'tiff-placeholder';
+                          e.target.parentNode.appendChild(placeholder);
+                          // Use React to render the TiffPlaceholder component
+                          ReactDOM.render(<TiffPlaceholder />, placeholder);
+                        } else if (previewImage.gcs_url) {
+                          // Try direct GCS URL as fallback
+                          e.target.src = previewImage.gcs_url;
+                        }
+                      }}
                     />
-                    <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: '8px' }}>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (onAnnotateImage) {
-                            onAnnotateImage(selectedFolder, img);
-                          }
-                        }}
-                        style={{
-                          background: 'rgba(0, 128, 255, 0.7)',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '50%',
-                          width: '30px',
-                          height: '30px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '16px',
-                          cursor: 'pointer',
-                          fontWeight: 'bold'
-                        }}
-                        title="Annotate image with AI"
-                      >
-                        🔍
-                      </button>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (onDeleteImage && window.confirm(`Delete image "${img.name || 'Untitled'}"`)) {
-                            onDeleteImage(selectedFolder, img);
-                          }
-                        }}
-                        style={{
-                          background: 'rgba(255, 0, 0, 0.7)',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '50%',
-                          width: '30px',
-                          height: '30px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '16px',
-                          cursor: 'pointer',
-                          fontWeight: 'bold'
-                        }}
-                        title="Delete image"
-                      >
-                        ×
-                      </button>
+                  ) : (
+                    <div className="empty-folder-placeholder">
+                      <span>No Images</span>
                     </div>
-                  </>
-                ) : (
-                  <div style={{width:160,height:160,background:'#eee',display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'6px',border:'1px solid #ddd'}}>No image</div>
-                )}
+                  )}
+                </div>
+                <div className="folder-preview-info">
+                  <h3>{folder}</h3>
+                  <span className="image-count">{imageCount} {imageCount === 1 ? 'image' : 'images'}</span>
+                </div>
               </div>
-              <div className="gallery-info">{img.name || 'Untitled'}</div>
-              <div className="gallery-folder">{img.folder || selectedFolder}</div>
-              
-              {/* Description from AI */}
-              {img.description && (
-                <div style={{ marginTop: '5px', color: '#444', fontSize: '0.9em' }}>
-                  <span role="img" aria-label="description" style={{marginRight:3}}>📝</span>
-                  <span>{img.description}</span>
+            );
+          })}
+        </div>
+      ) : viewMode === 'images' ? (
+        <div className="glass-gallery-grid animate-fadeUp">
+          {images.map((image, index) => (
+            <div key={image.id || index} className="glass-gallery-item">
+              <div 
+                className="glass-image-card glass-container"
+                onClick={() => openImage(image)}
+              >
+                <div className="glass-image-wrapper">
+                  <img 
+                    src={fixImageUrl(image.url)} 
+                    alt={image.name || 'Image'}
+                    onError={(e) => {
+                      if (image.name && image.name.toLowerCase().endsWith('.tiff')) {
+                        // Replace with TIFF placeholder
+                        e.target.style.display = 'none';
+                        const placeholder = document.createElement('div');
+                        placeholder.className = 'tiff-placeholder';
+                        e.target.parentNode.appendChild(placeholder);
+                        // Use React to render the TiffPlaceholder component
+                        ReactDOM.render(<TiffPlaceholder />, placeholder);
+                      } else if (image.gcs_url) {
+                        // Try direct GCS URL as fallback
+                        e.target.src = image.gcs_url;
+                      }
+                    }}
+                  />
                 </div>
-              )}
-              
-              {/* Location tag */}
-              {img.location_tag && img.location_tag.trim() !== "" ? (
-                <div style={{ marginTop: '5px' }}>
-                  <span role="img" aria-label="location" style={{marginRight:3}}>📍</span>
-                  <span className="gallery-location-tag">{img.location_tag}</span>
+                <div className="glass-image-info">
+                  <h4>{image.name}</h4>
+                  <div className="image-tags">
+                    {extractTags(image).map((tag, i) => (
+                      <span key={i} className="image-tag">{tag}</span>
+                    ))}
+                  </div>
+                  {(onDeleteImage || onAnnotateImage) && (
+                    <div className="image-actions">
+                      {onAnnotateImage && (
+                        <button 
+                          className="glass-button annotate-button" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAnnotateImage(selectedFolder, image);
+                          }}
+                        >
+                          Edit Tags
+                        </button>
+                      )}
+                      {onDeleteImage && (
+                        <button 
+                          className="glass-button delete-button" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm(`Delete ${image.name}?`)) {
+                              // Pass both folder and image to onDeleteImage
+                              onDeleteImage(selectedFolder, image);
+                            }
+                          }}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
-              ) : null}
-              
-              {/* Tags section */}
-              {img.tags && img.tags.length > 0 ? (
-                <div style={{ marginTop: '5px', display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                  {img.tags.slice(0, 5).map((tag, idx) => (
-                    <span key={idx} style={{
-                      background: 'rgba(0, 120, 215, 0.1)',
-                      color: '#0078d7',
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      fontSize: '0.8em',
-                      fontWeight: 'bold'
-                    }}>{tag}</span>
-                  ))}
-                </div>
-              ) : null}
-              {img.mimetype && <div style={{fontSize:'0.9em',color:'var(--text-muted, #888)'}}>{img.mimetype}</div>}
-              {img.uploaded_at && <div style={{fontSize:'0.85em',color:'var(--text-muted, #aaa)'}}>{String(img.uploaded_at).slice(0,10)}</div>}
+              </div>
             </div>
           ))}
+          
+          {images.length === 0 && (
+            <div className="empty-folder-message glass-container">
+              <p>No images in this folder</p>
+            </div>
+          )}
         </div>
-      )}
-      {/* Lightbox Modal with zoom and transitions */}
-      {lightboxOpen && images[lightboxIdx] && (
-        <div
-          className="lightbox-fade"
-          style={{
-            position: 'fixed', top:0, left:0, right:0, bottom:0,
-            background: 'rgba(0,0,0,0.85)', zIndex: 1000,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            animation: 'lightbox-fadein 0.35s',
-          }}
-          tabIndex={-1}
-          onKeyDown={e => {
-            if (e.key === 'Escape') closeLightbox();
-            if (e.key === 'ArrowLeft') showPrev();
-            if (e.key === 'ArrowRight') showNext();
-          }}
-        >
-          <button onClick={closeLightbox} style={{position:'absolute',top:30,right:40,fontSize:32,color:'#fff',background:'none',border:'none',cursor:'pointer',fontWeight:'bold'}}>×</button>
-          <button onClick={showPrev} style={{position:'absolute',left:40,top:'50%',transform:'translateY(-50%)',fontSize:40,color:'#fff',background:'none',border:'none',cursor:'pointer',fontWeight:'bold'}}>&#8592;</button>
-          <img
-            src={images[lightboxIdx].url}
-            alt={images[lightboxIdx].name}
-            className={zoomed ? 'lightbox-img zoomed' : 'lightbox-img'}
-            onClick={() => setZoomed(z => !z)}
-            style={{transition:'transform 0.3s'}}
-          />
-          <button onClick={showNext} style={{position:'absolute',right:40,top:'50%',transform:'translateY(-50%)',fontSize:40,color:'#fff',background:'none',border:'none',cursor:'pointer',fontWeight:'bold'}}>&#8594;</button>
-          <div style={{position:'absolute',bottom:40,left:0,right:0,textAlign:'center',color:'#fff',fontSize:'1.2rem',fontWeight:'bold',textShadow:'0 2px 8px #000'}}>
-            {/* Image title */}
-            {images[lightboxIdx].name}
-            
-            {/* Description */}
-            {images[lightboxIdx].description && (
-              <div style={{fontSize:'1.05rem',fontWeight:'normal',marginTop:6,color:'#fff',textShadow:'0 1px 4px #000'}}>
-                <span>{images[lightboxIdx].description}</span>
-              </div>
-            )}
-            
-            {/* Location */}
-            {images[lightboxIdx].location_tag && (
-              <div style={{fontSize:'1.05rem',fontWeight:'normal',marginTop:6,color:'#cbe',textShadow:'0 1px 4px #000'}}>
-                <span role="img" aria-label="location" style={{marginRight:3}}>📍</span>
-                <span>{images[lightboxIdx].location_tag}</span>
-              </div>
-            )}
-            
-            {/* Tags */}
-            {images[lightboxIdx].tags && images[lightboxIdx].tags.length > 0 && (
-              <div style={{display:'flex',flexWrap:'wrap',gap:'8px',justifyContent:'center',marginTop:10}}>
-                {images[lightboxIdx].tags.slice(0, 5).map((tag, idx) => (
-                  <span key={idx} style={{
-                    background: 'rgba(255, 255, 255, 0.2)',
-                    color: '#fff',
-                    padding: '3px 10px',
-                    borderRadius: '12px',
-                    fontSize: '0.9em',
-                    textShadow: 'none'
-                  }}>{tag}</span>
+      ) : viewMode === 'singleImage' && selectedImage ? (
+        <div className="single-image-view animate-fadeUp">
+          <div className="glass-image-container glass-container">
+            <div className="single-image-header">
+              <button 
+                className="back-button glass-button" 
+                onClick={closeImage}
+              >
+                <span>←</span> Back to Folder
+              </button>
+              <h3>{selectedImage.name}</h3>
+            </div>
+            <div className="single-image-wrapper">
+              <img 
+                src={fixImageUrl(selectedImage.url)} 
+                alt={selectedImage.name || 'Image'}
+                onError={(e) => {
+                  if (selectedImage.name && selectedImage.name.toLowerCase().endsWith('.tiff')) {
+                    // Replace with TIFF placeholder
+                    e.target.style.display = 'none';
+                    const placeholder = document.createElement('div');
+                    placeholder.className = 'tiff-placeholder';
+                    e.target.parentNode.appendChild(placeholder);
+                    // Use React to render the TiffPlaceholder component
+                    ReactDOM.render(<TiffPlaceholder />, placeholder);
+                  } else if (selectedImage.gcs_url) {
+                    // Try direct GCS URL as fallback
+                    e.target.src = selectedImage.gcs_url;
+                  }
+                }}
+              />
+            </div>
+            <div className="single-image-info">
+              <div className="image-tags">
+                {extractTags(selectedImage).map((tag, i) => (
+                  <span key={i} className="image-tag">{tag}</span>
                 ))}
               </div>
-            )}
+              {(onDeleteImage || onAnnotateImage) && (
+                <div className="image-actions">
+                  {onAnnotateImage && (
+                    <button 
+                      className="glass-button annotate-button" 
+                      onClick={() => onAnnotateImage(selectedFolder, selectedImage)}
+                    >
+                      Edit Tags
+                    </button>
+                  )}
+                  {onDeleteImage && (
+                    <button 
+                      className="glass-button delete-button" 
+                      onClick={() => {
+                        if (window.confirm(`Delete ${selectedImage.name}?`)) {
+                          // Pass both folder and image to onDeleteImage
+                          onDeleteImage(selectedFolder, selectedImage);
+                          closeImage();
+                        }
+                      }}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
+      ) : null}
+      
+      {viewMode !== 'singleImage' && selectedImage && (
+        <ImageLightbox 
+          image={selectedImage}
+          onClose={closeImage}
+        />
       )}
     </div>
   );
 }
-

@@ -843,7 +843,7 @@ def get_gcs_client():
         raise  # Re-raise the exception to fail fast in case of auth issues
 
 # --- GCS Reindexing Endpoint ---
-@app.route('/api/reindex-gcs', methods=['POST'])
+@app.route('/api/reindex-gcs', methods=['GET', 'POST'])
 def reindex_gcs():
     """
     Reindex all photos in the GCS bucket and update the database.

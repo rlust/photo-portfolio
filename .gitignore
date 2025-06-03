@@ -73,3 +73,8 @@ htmlcov/
 .tox/
 coverage.xml
 *.cover
+backend/photo-portfolio-459415-b9617545efb7.json
+backend/photo-portfolio-459415-f162b9c0244f.json
+backend/secrets/cloudsql/credentials.json
+backend/db-credentials.json
+backend/db_credentials.txt

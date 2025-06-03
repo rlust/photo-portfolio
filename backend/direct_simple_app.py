@@ -71,6 +71,10 @@ TARGET_IMAGE_BACKEND = "https://simplified-backend-839093975626.us-central1.run.
 class DeleteImageRequest(BaseModel):
     folder: str
     filename: str
+    
+class AnnotateImageRequest(BaseModel):
+    folder: str
+    filename: str
 
 @app.get("/uploads/{filename:path}")
 async def proxy_image(filename: str):
@@ -109,6 +113,32 @@ async def proxy_image(filename: str):
     except Exception as e:
         logger.error(f"Error proxying image: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error proxying image: {str(e)}")
+
+@app.post("/api/annotate-image/")
+async def annotate_image(request: AnnotateImageRequest):
+    """Annotate an image using the simplified backend"""
+    logger.info(f"Annotate image request: {request}")
+    
+    try:
+        # Forward the annotation request to the simplified backend
+        target_url = f"{TARGET_IMAGE_BACKEND}/api/annotate-image/"
+        
+        # Make the request to the simplified backend
+        response = requests.post(
+            target_url,
+            json={"folder": request.folder, "filename": request.filename},
+            headers={"Content-Type": "application/json"}
+        )
+        
+        if response.status_code == 200:
+            logger.info(f"Successfully annotated image {request.filename} from folder {request.folder}")
+            return response.json()
+        else:
+            logger.error(f"Failed to annotate image: {response.status_code} - {response.text}")
+            return {"success": False, "message": f"Failed to annotate image: {response.text}"}
+    except Exception as e:
+        logger.error(f"Error annotating image: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error annotating image: {str(e)}")
 
 @app.post("/api/delete-image/")
 async def delete_image(request: DeleteImageRequest):

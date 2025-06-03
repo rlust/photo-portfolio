@@ -4,8 +4,11 @@ import React, { useState } from "react";
 const UPLOAD_BACKEND_URL = 'https://simplified-backend-839093975626.us-central1.run.app';
 const UPLOAD_ENDPOINT = `${UPLOAD_BACKEND_URL}/api/batch-upload`;
 
-// Use the simplified-backend directly for image loading
+// Primary URL for serving images through the GCS proxy
 const IMAGE_SERVING_URL = 'https://simplified-backend-839093975626.us-central1.run.app';
+// Fallback URLs in case the primary one has issues
+const FALLBACK_IMAGE_URL = 'https://simplified-backend-ymcejj57ga-uc.a.run.app';
+const SECOND_FALLBACK_IMAGE_URL = 'https://photoportfolio-backend-er4l5fctxq-uc.a.run.app';
 
 export default function LargeBatchUpload({ onUploaded, onUploadSuccess }) {
   const [files, setFiles] = useState([]);
@@ -149,16 +152,22 @@ export default function LargeBatchUpload({ onUploaded, onUploadSuccess }) {
         // Always explicitly construct the URL from the storage path
         // regardless of what the backend returns
         if (uploadedFile.storage_path) {
-          const filename = uploadedFile.storage_path.split('/').pop();
+          // Extract filename and folder from storage path
+          const pathParts = uploadedFile.storage_path.split('/');
+          const filename = pathParts.pop(); // Get the last part (filename)
+          const folder = pathParts.length > 0 ? pathParts[0] : 'test'; // First directory or default to 'test'
           
-          // Use our image proxy URL from the direct-simple-api service
-          // This service will proxy requests to the simplified-backend
-          uploadedFile.url = `${IMAGE_SERVING_URL}/uploads/${filename}`;
-          console.log('CONSTRUCTED PROXIED IMAGE URL:', uploadedFile.url);
+          // Use our new GCS proxy endpoint which serves images directly from GCS
+          uploadedFile.url = `${IMAGE_SERVING_URL}/gcs-proxy/${folder}/${filename}`;
+          console.log('CONSTRUCTED GCS PROXY URL:', uploadedFile.url);
           
           // Also add a timestamp parameter to prevent caching
           uploadedFile.url = `${uploadedFile.url}?t=${new Date().getTime()}`;
           console.log('FINAL IMAGE URL WITH CACHE BUSTING:', uploadedFile.url);
+          
+          // Also store fallback URLs in case the primary one fails
+          uploadedFile.fallback_url = `${FALLBACK_IMAGE_URL}/gcs-proxy/${folder}/${filename}?t=${new Date().getTime()}`;
+          uploadedFile.second_fallback_url = `${SECOND_FALLBACK_IMAGE_URL}/gcs-proxy/${folder}/${filename}?t=${new Date().getTime()}`;
         }
         
         // Add proper image name from the original filename
