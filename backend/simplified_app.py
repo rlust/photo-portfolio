@@ -19,8 +19,9 @@ import base64
 import os
 import logging
 import sys
-# Import CLIP tagger
+# Import CLIP tagger and tag configurations
 from clip_tagger import tag_image_with_clip
+from config.tag_config import CANDIDATE_TAGS, DEFAULT_TOP_K
 
 # Configure logging for better visibility in Cloud Run
 logging.basicConfig(
@@ -1291,14 +1292,8 @@ async def reindex_gcs(batch_size: int = 10, folder_filter: str = None, start_aft
                         logger.info(f"[{request_id}] Downloaded {filename} to {folder_name}/{filename}")
                     
                     # Tag image with CLIP
-                    candidate_tags = [
-                        "Florence", "Landscape", "Wildlife", "Nature", "Photography",
-                        "City", "Portrait", "Architecture", "Travel", "People",
-                        "Animals", "Mountains", "River", "Sunset", "Forest",
-                        "Desert", "Beach", "Night", "Street", "Art"
-                    ]
                     try:
-                        top_tags = tag_image_with_clip(str(local_path), candidate_tags, top_k=5)
+                        top_tags = tag_image_with_clip(str(local_path), CANDIDATE_TAGS, top_k=DEFAULT_TOP_K)
                         tag_strings = [tag for tag, prob in top_tags]
                         logger.info(f"[{request_id}] CLIP tags for {filename}: {tag_strings}")
                     except Exception as tag_error:
