@@ -19,6 +19,8 @@ import base64
 import os
 import logging
 import sys
+# Import CLIP tagger
+from clip_tagger import tag_image_with_clip
 
 # Configure logging for better visibility in Cloud Run
 logging.basicConfig(
@@ -1288,9 +1290,24 @@ async def reindex_gcs(batch_size: int = 10, folder_filter: str = None, start_aft
                         blob.download_to_filename(str(local_path))
                         logger.info(f"[{request_id}] Downloaded {filename} to {folder_name}/{filename}")
                     
+                    # Tag image with CLIP
+                    candidate_tags = [
+                        "Florence", "Landscape", "Wildlife", "Nature", "Photography",
+                        "City", "Portrait", "Architecture", "Travel", "People",
+                        "Animals", "Mountains", "River", "Sunset", "Forest",
+                        "Desert", "Beach", "Night", "Street", "Art"
+                    ]
+                    try:
+                        top_tags = tag_image_with_clip(str(local_path), candidate_tags, top_k=5)
+                        tag_strings = [tag for tag, prob in top_tags]
+                        logger.info(f"[{request_id}] CLIP tags for {filename}: {tag_strings}")
+                    except Exception as tag_error:
+                        tag_strings = []
+                        logger.error(f"[{request_id}] CLIP tagging failed for {filename}: {tag_error}")
+
                     # Add metadata to the database (if we had one)
-                    # In a real app, we would store this information in a database
-                    # For now, we'll just count it as processed
+                    # In a real app, we would store this information in a database, including tags
+                    # For now, we'll just count it as processed and log tags
                     stats["images_processed"] += 1
                     stats["images_added"] += 1
                     
